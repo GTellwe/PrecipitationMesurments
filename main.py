@@ -23,6 +23,10 @@ import numpy as np
 
 # Constants
 receptiveField = 6
+maxLongitude = -51
+minLongitde = -70
+maxLatitide = 2.5
+minLatitude = -11
 def getFilesForHour(DATE):
     
     '''
@@ -75,6 +79,68 @@ def getGEOData(longitude, latitude, TIME):
     return Dataset(fileName,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
 #def getGPMData():
         
+
+        
+def downloadGPM(filename, dest):
+    t = self.name_to_date(filename)
+    year = t.year
+    day  = t.strftime("%j")
+    day  = "0" * (3 - len(day)) + day
+
+    request_string = self._request_string.format(year = year, day = day, filename = filename)
+
+
+    r = requests.get(request_string)
+    with open(dest, 'wb') as f:
+        for chunk in r:
+            f.write(chunk)
+        
+def getGPMFilesForSpecificDay(DATE):
+    '''
+        returning a list of file name for that spcific date
+    '''
+    import http.client
+    import re
+    c = http.client.HTTPSConnection("gpm1.gesdisc.eosdis.nasa.gov")
+
+    request_string = 'https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L2/GPM_2BCMB.06/%s/' % (DATE.strftime('%Y/%j'))
+    c.request("GET", request_string)
+    r = c.getresponse()
+    r = str(r.read())
+   
+    files = list(set(re.compile('"[^"]*.HDF5"').findall(r)))
+  
+    files.sort()
+    return [f[1:-1] for f in files]
+
+def downloadGPMFile(FILENAME, DATE):
+    
+    '''
+        downloading rain totals form filename
+    '''
+    
+    host_name = 'https://gpm1.gesdisc.eosdis.nasa.gov/daac-bin/OTF/HTTP_services.cgi?'
+    filename = '%2Fdata%2FGPM_L2%2FGPM_2BCMB.06%2F' + DATE.strftime('%Y') + '%2F' + DATE.strftime('%j') + '%2F' + FILENAME
+    p_format =  'aDUv'
+    bbox = str(minLatitide) + '%2C' + str(minLongitude) + '%2C' + str(maxLatitude) + '%2C' + str(maxLongitude)
+    label = FILENAME[:-8]+'SUB.HDF5'
+    flags = 'GRIDTYPE__SWATH'
+    variables = '..2FNS..2FsurfPrecipTotRate%2C..2FNS..2Fnavigation..2FtimeMidScanOffset'
+    #URL = 'https://gpm1.gesdisc.eosdis.nasa.gov/daac-bin/OTF/HTTP_services.cgi?FILENAME=%2Fdata%2FGPM_L2%2FGPM_2BCMB.06%2F2019%2F007%2F2B.GPM.DPRGMI.CORRA2018.20190107-S194520-E211752.027616.V06A.HDF5&FORMAT=aDUv&BBOX=-70%2C-180%2C70%2C180&LABEL=2B.GPM.DPRGMI.CORRA2018.20190107-S194520-E211752.027616.V06A.SUB.HDF5&FLAGS=GRIDTYPE__SWATH&SHORTNAME=GPM_2BCMB&SERVICE=SUBSET_LEVEL2&VERSION=1.02&DATASET_VERSION=06&VARIABLES=..2FNS..2FsurfPrecipTotRate%2C..2FNS..2Fnavigation..2FtimeMidScanOffset'
+    URL = host_name + 'FILENAME=' + filename + '&FORMAT=' + p_format + '&BBOX=' + bbox + '&LABEL=' + label + '&FLAGS=' + flags + '&SHORTNAME=GPM_2BCMB&SERVICE=SUBSET_LEVEL2&VERSION=1.02&DATASET_VERSION=06&VARIABLES=' + variables
+    
+    
+    import requests
+    result = requests.get(URL)
+    try:
+       result.raise_for_status()
+       f = open('data/' + FILENAME,'wb')
+       f.write(result.content)
+       f.close()
+       print('contents of URL written to '+FILENAME)
+    except:
+       print('requests.get() returned an error code '+str(result.status_code))
+def getGPMData() 
 def getTrainingData(latitude,longitude,width, height, dataSize):
     import numpy as np
     '''
@@ -93,7 +159,7 @@ def getTrainingData(latitude,longitude,width, height, dataSize):
             2: time
             3: rain amount
     '''
-    GPM_data = getGPMData(latitude,longitude,width, height,datetime.datetime(2020,1,26))
+    GPM_data = getGPMData(width, height,datetime.datetime(2020,1,26))
     '''
     next step is to pair the label with the geostattionary data.
     '''
@@ -102,52 +168,8 @@ def getTrainingData(latitude,longitude,width, height, dataSize):
         xData[i,:,:] = getGeoData(values.latitude, values.longitude,TIME)
         yData[i] = values.ammount
         i = i+1
-        
-def downloadGPM(filename, dest):
-        t = self.name_to_date(filename)
-        year = t.year
-        day  = t.strftime("%j")
-        day  = "0" * (3 - len(day)) + day
-
-        request_string = self._request_string.format(year = year, day = day, filename = filename)
-
-
-        r = requests.get(request_string)
-        with open(dest, 'wb') as f:
-            for chunk in r:
-                f.write(chunk)
-                
-def getGPMFilesForSpecificDay(DATE):
-        import http.client
-        import re
-        c = http.client.HTTPSConnection("gpm1.gesdisc.eosdis.nasa.gov")
-
-        #equest_string = 'https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L2/GPM_2BCMB.06/2020/026/'
-        
-        request_string = 'https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L2/GPM_2BCMB.06/%s/' % (DATE.strftime('%Y/%j'))
-        print(request_string)
-        c.request("GET", request_string)
-        r = c.getresponse()
-        r = str(r.read())
-        #print(r)
-        files = list(set(re.compile('"[^"]*.HDF5"').findall(r)))
-        #files = list(set(self.prog.findall(r)))
-        files.sort()
-        return [f[1:-1] for f in files]
-    
 #%%
-URL = 'https://gpm1.gesdisc.eosdis.nasa.gov/daac-bin/OTF/HTTP_services.cgi?FILENAME=%2Fdata%2FGPM_L2%2FGPM_2BCMB.06%2F2019%2F007%2F2B.GPM.DPRGMI.CORRA2018.20190107-S194520-E211752.027616.V06A.HDF5&FORMAT=aDUv&BBOX=-70%2C-180%2C70%2C180&LABEL=2B.GPM.DPRGMI.CORRA2018.20190107-S194520-E211752.027616.V06A.SUB.HDF5&FLAGS=GRIDTYPE__SWATH&SHORTNAME=GPM_2BCMB&SERVICE=SUBSET_LEVEL2&VERSION=1.02&DATASET_VERSION=06&VARIABLES=..2FNS..2FsurfPrecipTotRate%2C..2FNS..2Fnavigation..2FtimeMidScanOffset'
-FILENAME = 'test.hdf5'
-import requests
-result = requests.get(URL)
-try:
-   result.raise_for_status()
-   f = open(FILENAME,'wb')
-   f.write(result.content)
-   f.close()
-   print('contents of URL written to '+FILENAME)
-except:
-   print('requests.get() returned an error code '+str(result.status_code))
+
    
 #%%
    
@@ -160,23 +182,8 @@ print(f['NS']['surfPrecipTotRate'][1000:1001])
 
 #%%
 
-def get_files():
-
-      
-        c = http.client.HTTPSConnection("gpm1.gesdisc.eosdis.nasa.gov")
-
-        request_string = 'https://gpm1.gesdisc.eosdis.nasa.gov/data/GPM_L2/GPM_2BCMB.06/2020/026/'
-        c.request("GET", request_string)
-        r = c.getresponse()
-        r = str(r.read())
-        #print(r)
-        files = list(set(re.compile('"[^"]*.HDF5"').findall(r)))
-        #files = list(set(self.prog.findall(r)))
-        files.sort()
-        return [f[1:-1] for f in files]
-re.compile('"[^"]*.HDF5"')
-get_files()
 #%%
 import datetime
 
-print(getGPMFilesForSpecificDay(datetime.datetime(2020,1,26)))
+#print(getGPMFilesForSpecificDay(datetime.datetime(2020,1,26)))
+downloadGPMFile(getGPMFilesForSpecificDay(datetime.datetime(2020,1,26))[0],datetime.datetime(2020,1,26))
