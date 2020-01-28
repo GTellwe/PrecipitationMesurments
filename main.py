@@ -77,23 +77,6 @@ def getGEOData(longitude, latitude, TIME):
     xIndex = 1000
     yIndex = 1000
     return Dataset(fileName,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
-#def getGPMData():
-        
-
-        
-def downloadGPM(filename, dest):
-    t = self.name_to_date(filename)
-    year = t.year
-    day  = t.strftime("%j")
-    day  = "0" * (3 - len(day)) + day
-
-    request_string = self._request_string.format(year = year, day = day, filename = filename)
-
-
-    r = requests.get(request_string)
-    with open(dest, 'wb') as f:
-        for chunk in r:
-            f.write(chunk)
         
 def getGPMFilesForSpecificDay(DATE):
     '''
@@ -118,11 +101,14 @@ def downloadGPMFile(FILENAME, DATE):
     '''
         downloading rain totals form filename
     '''
-    
+    maxLongitude = -51
+    minLongitude = -70
+    maxLatitude = 2.5
+    minLatitude = -11
     host_name = 'https://gpm1.gesdisc.eosdis.nasa.gov/daac-bin/OTF/HTTP_services.cgi?'
     filename = '%2Fdata%2FGPM_L2%2FGPM_2BCMB.06%2F' + DATE.strftime('%Y') + '%2F' + DATE.strftime('%j') + '%2F' + FILENAME
     p_format =  'aDUv'
-    bbox = str(minLatitide) + '%2C' + str(minLongitude) + '%2C' + str(maxLatitude) + '%2C' + str(maxLongitude)
+    bbox = str(minLatitude) + '%2C' + str(minLongitude) + '%2C' + str(maxLatitude) + '%2C' + str(maxLongitude)
     label = FILENAME[:-8]+'SUB.HDF5'
     flags = 'GRIDTYPE__SWATH'
     variables = '..2FNS..2FsurfPrecipTotRate%2C..2FNS..2Fnavigation..2FtimeMidScanOffset'
@@ -140,15 +126,67 @@ def downloadGPMFile(FILENAME, DATE):
        print('contents of URL written to '+FILENAME)
     except:
        print('requests.get() returned an error code '+str(result.status_code))
-def getGPMData() 
-def getTrainingData(latitude,longitude,width, height, dataSize):
+       
+def getGPMData(DATE, maxDataSize):
+    
+    '''
+        retruns GPM data for the day provided. The data is in form of an array
+        with each entry having attributes:
+            1: position
+            2: time
+            3: rain amount
+    '''
     import numpy as np
+    data = np.zeros((maxDataSize,4))
+    
+    # get the files for the specific day
+    files = getGPMFilesForSpecificDay(DATE)
+    
+    index = 0
+    
+    for FILENAME in files:
+        # download the gpm data
+        downloadGPMFile(FILENAME,DATE)
+        
+        # read the data
+        path =  filename
+        f = h5py.File(path, 'r')
+        precepTotRate = f['NS']['surfPrecipTotRate'][:].flatten()
+        longitude = f['NS']['Longitude'][:].flatten()
+        latitude = f['NS']['Latitude'][:].flatten()
+        time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
+        
+        index1 = min(maxDataSize,index+len(precepTotRate))
+        
+        data[index:index1,0] = precepTotRate[:index1-(index+len(precepTotRate))]
+        data[index:index1,1] = longitude[:index1-(index+len(precepTotRate))]
+        data[index:index1,2] = latitude[:index1-(index+len(precepTotRate))]
+        data[index:index1,3] = time[:index1-(index+len(precepTotRate))]
+        
+        index = index + len(precepTotRate)
+        
+        if index > maxDataSize:
+            break
+        
+        
+def convertTimeStampToDatetime(timestamp):
+    import datetime
+    UNIXTime = datetime.datetime(1970,1,1)
+    GPSTime = datetime.datetime(1980,1,6)
+    delta = (GPSTime-UNIXTime).total_seconds()
+    return datetime.datetime.fromtimestamp(timestamp+delta)
+
+def getTrainingData(dataSize):
+    import numpy as np
+    import datetime
+    receptiveField = 6
+
     '''
     returns a set that conisit of radiance data for an area around every pixel
     in the given area together with its label
     '''
-    xData = np.zeros(dataSize,receptiveField,receptiveField)
-    yData = np.zeros(datasize)
+    xData = np.zeros((dataSize,receptiveField,receptiveField))
+    yData = np.zeros((dataSize,1))
     '''
         First step is to get the label data. To do this, we look at a specifi
         passing of the satelite over the area. We then extract the points
@@ -159,31 +197,38 @@ def getTrainingData(latitude,longitude,width, height, dataSize):
             2: time
             3: rain amount
     '''
-    GPM_data = getGPMData(width, height,datetime.datetime(2020,1,26))
+    GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize)
     '''
     next step is to pair the label with the geostattionary data.
     '''
     
-    for values in GPM_data:
-        xData[i,:,:] = getGeoData(values.latitude, values.longitude,TIME)
-        yData[i] = values.ammount
-        i = i+1
+    for i in range(dataSize):
+        xData[i,:,:] = getGEOData(GPM_data[i,1], GPM_data[i,2],convertTimeStampToDatetime(GPM_data[i,3]))
+        yData[i] = GPM_data[i,0]
+
+    
 #%%
 
    
 #%%
    
 import h5py
-filename = 'test.hdf5'
+filename = 'data/2B.GPM.DPRGMI.CORRA2018.20200126-S004153-E021426.033577.V06A.hdf5'
 f = h5py.File(filename, 'r')
 print(f.keys())
 print(f['NS'].keys())
-print(f['NS']['surfPrecipTotRate'][1000:1001])
+print(f['nrayNS_idx'].shape[0])
+#print(f['NS'][].shape)
+print(f['NS']['navigation']['timeMidScan'][0])
+seconds = f['NS']['navigation']['timeMidScan'][0]
+UNIXTime = datetime.datetime(1970,1,1)
+GPSTime = datetime.datetime(1980,1,6)
+delta = (GPSTime-UNIXTime).total_seconds()
+
+print(datetime.datetime.fromtimestamp(seconds+delta))
 
 #%%
 
 #%%
-import datetime
-
-#print(getGPMFilesForSpecificDay(datetime.datetime(2020,1,26)))
-downloadGPMFile(getGPMFilesForSpecificDay(datetime.datetime(2020,1,26))[0],datetime.datetime(2020,1,26))
+from netCDF4 import Dataset
+Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['y'][1230]
