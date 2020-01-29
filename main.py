@@ -56,6 +56,17 @@ def downloadFile(FILE):
     Downloads FILE and saves it in the data folder
     '''
     from google.cloud import storage
+    #check if file lready exists
+    
+    try:
+        f = open('data/'+FILE)
+        # Do something with the file
+        return
+    except IOError:
+        print("File does not exist, downloading")
+   
+        
+    
     client = storage.Client.create_anonymous_client()
     bucket = client.bucket(bucket_name='gcp-public-data-goes-16', user_project=None)
     blob = bucket.blob(FILE)
@@ -67,16 +78,60 @@ def getGEOData(longitude, latitude, TIME):
     returns the receptiveField by receptiveField pixel 10.8 radiance map for the geostationary 
     satelite at the time closest to TIME
     '''
+    
     # Download the data file
     filePATH  =getClosestFile(TIME)
     downloadFile(filePATH)
     
-    fileName = 'data/'+filePATH.split('/')[-1]
-    #TODO: convert the longitude and latitude to indexes of the matrix
+    FILE = 'data/'+filePATH.split('/')[-1]
     
-    xIndex = 1000
-    yIndex = 1000
-    return Dataset(fileName,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
+    C = xarray.open_dataset(FILE)
+    
+    # Satellite height
+    sat_h = C['goes_imager_projection'].perspective_point_height
+    
+    # Satellite longitude
+    sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+    
+    # Satellite sweep
+    sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+    
+    # The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
+    # See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
+    x = C['x'][:] * sat_h
+    y = C['y'][:] * sat_h
+    #Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
+    # Create a pyproj geostationary map object
+    p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+    
+    # Perform cartographic transformation. That is, convert image projection coordinates (x and y)
+    # to latitude and longitude values.
+    XX, YY = np.meshgrid(x, y)
+    lons, lats = p(XX, YY, inverse=True)
+    
+    d = np.zeros((lons.shape[0], lats.shape[1]))
+    
+    # calculate the minimal dinstance
+    idxLong = (np.abs(lons[int(lons.shape[0]/2),:] - lonitude)).argmin()
+    idxLats = (np.abs(lats[:,idxLong] - latitude)).argmin()
+    
+ 
+    square = 2
+    d = np.zeros((square*2,square*2))
+    minDistance = np.sqrt((lons[idxLong,idxLats]-lonitude)**2+(lats[idxLong,idxLats]-latitude)**2)
+
+    for k in range(500):
+        for i in range(idxLong-square,idxLong+square):
+            for j in range(idxLats-square,idxLats+square):
+                distance = np.sqrt((lons[i,j]-lonitude)**2+(lats[i,j]-latitude)**2)
+                if(distance < minDistance):
+                    minDistance = distance
+                    idxLong = i
+                    idxLats = j
+    xIndex = idxLong
+    yIndex = idxLats
+    
+    return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
         
 def getGPMFilesForSpecificDay(DATE):
     '''
@@ -101,6 +156,14 @@ def downloadGPMFile(FILENAME, DATE):
     '''
         downloading rain totals form filename
     '''
+    # check if file lready exists
+    try:
+        f = open('data/'+FILENAME)
+        # Do something with the file
+        return
+    except IOError:
+        print("File does not exist, downloading")
+        
     maxLongitude = -51
     minLongitude = -70
     maxLatitude = 2.5
@@ -136,6 +199,7 @@ def getGPMData(DATE, maxDataSize):
             2: time
             3: rain amount
     '''
+    import h5py
     import numpy as np
     data = np.zeros((maxDataSize,4))
     
@@ -149,7 +213,7 @@ def getGPMData(DATE, maxDataSize):
         downloadGPMFile(FILENAME,DATE)
         
         # read the data
-        path =  filename
+        path =  'data/'+FILENAME
         f = h5py.File(path, 'r')
         precepTotRate = f['NS']['surfPrecipTotRate'][:].flatten()
         longitude = f['NS']['Longitude'][:].flatten()
@@ -169,6 +233,8 @@ def getGPMData(DATE, maxDataSize):
             break
         
         
+    return data
+   
 def convertTimeStampToDatetime(timestamp):
     import datetime
     UNIXTime = datetime.datetime(1970,1,1)
@@ -203,13 +269,14 @@ def getTrainingData(dataSize):
     '''
     
     for i in range(dataSize):
+        print(i)
         xData[i,:,:] = getGEOData(GPM_data[i,1], GPM_data[i,2],convertTimeStampToDatetime(GPM_data[i,3]))
         yData[i] = GPM_data[i,0]
 
     
 #%%
 
-   
+getTrainingData(1000)
 #%%
    
 import h5py
@@ -230,5 +297,61 @@ print(datetime.datetime.fromtimestamp(seconds+delta))
 #%%
 
 #%%
+
+%matplotlib inline
+
+import numpy as np
+from datetime import datetime, timedelta
+from pyproj import Proj
+import xarray
+import matplotlib.pyplot as plt
+#from mpl_toolkits.basemap import Basemap
 from netCDF4 import Dataset
-Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['y'][1230]
+FILE = 'data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc'
+C = xarray.open_dataset(FILE)
+
+# Satellite height
+sat_h = C['goes_imager_projection'].perspective_point_height
+
+# Satellite longitude
+sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+
+# Satellite sweep
+sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+
+# The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
+# See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
+x = C['x'][:] * sat_h
+y = C['y'][:] * sat_h
+#Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
+# Create a pyproj geostationary map object
+p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+
+# Perform cartographic transformation. That is, convert image projection coordinates (x and y)
+# to latitude and longitude values.
+XX, YY = np.meshgrid(x, y)
+lons, lats = p(XX, YY, inverse=True)
+
+#%% calculate the minimal dinstance
+lonitude = -110
+latitude = 35
+
+
+#print(d)     
+#%%
+plt.imshow(d)  
+#%%
+print(minDistance)
+print(lons[idxLong,idxLats])
+print(lats[idxLong,idxLats])
+
+print(idxLong)
+print(idxLats)
+#%%
+
+df = y.to_dataframe()
+print(df.shape)
+plt.plot(lons[1,:])
+#plt.imshow(lats)
+print(lons[1,1500:1550])
+print(lats.shape)
