@@ -27,6 +27,9 @@ maxLongitude = -51
 minLongitde = -70
 maxLatitide = 2.5
 minLatitude = -11
+lons = []
+lats = []
+oldFile = ""
 def getFilesForHour(DATE):
     
     '''
@@ -59,7 +62,7 @@ def downloadFile(FILE):
     #check if file lready exists
     
     try:
-        f = open('data/'+FILE)
+        f = open('data/'+FILE.split('/')[-1])
         # Do something with the file
         return
     except IOError:
@@ -71,17 +74,11 @@ def downloadFile(FILE):
     bucket = client.bucket(bucket_name='gcp-public-data-goes-16', user_project=None)
     blob = bucket.blob(FILE)
     blob.download_to_filename('data/'+FILE.split('/')[-1])
-
-def getGEOData(longitude, latitude, TIME):
-    from netCDF4 import Dataset
-    '''
-    returns the receptiveField by receptiveField pixel 10.8 radiance map for the geostationary 
-    satelite at the time closest to TIME
-    '''
     
-    # Download the data file
-    filePATH  =getClosestFile(TIME)
-    downloadFile(filePATH)
+def extractGeoData(filePATH, oldFilePath):
+    global lons,lats
+    if oldFilePath == filePATH:
+        return
     
     FILE = 'data/'+filePATH.split('/')[-1]
     
@@ -107,19 +104,34 @@ def getGEOData(longitude, latitude, TIME):
     # Perform cartographic transformation. That is, convert image projection coordinates (x and y)
     # to latitude and longitude values.
     XX, YY = np.meshgrid(x, y)
+    print("traonsfrming data")
     lons, lats = p(XX, YY, inverse=True)
+    print("transformation done")
+
     
+def getGEOData(longitude, latitude, TIME):
+    from netCDF4 import Dataset
+    global oldFile
+    '''
+    returns the receptiveField by receptiveField pixel 10.8 radiance map for the geostationary 
+    satelite at the time closest to TIME
+    '''
+    
+    # Download the data file
+    filePATH  =getClosestFile(TIME)
+    downloadFile(filePATH)
+    extractGeoData(filePATH, oldFile)
+    oldFile = filePATH
     d = np.zeros((lons.shape[0], lats.shape[1]))
     
     # calculate the minimal dinstance
     idxLong = (np.abs(lons[int(lons.shape[0]/2),:] - lonitude)).argmin()
     idxLats = (np.abs(lats[:,idxLong] - latitude)).argmin()
-    
  
     square = 2
     d = np.zeros((square*2,square*2))
     minDistance = np.sqrt((lons[idxLong,idxLats]-lonitude)**2+(lats[idxLong,idxLats]-latitude)**2)
-
+    print("initializing ndex search")
     for k in range(500):
         for i in range(idxLong-square,idxLong+square):
             for j in range(idxLats-square,idxLats+square):
@@ -130,7 +142,7 @@ def getGEOData(longitude, latitude, TIME):
                     idxLats = j
     xIndex = idxLong
     yIndex = idxLats
-    
+    print("index search done")
     return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
         
 def getGPMFilesForSpecificDay(DATE):
@@ -243,6 +255,7 @@ def convertTimeStampToDatetime(timestamp):
     return datetime.datetime.fromtimestamp(timestamp+delta)
 
 def getTrainingData(dataSize):
+    
     import numpy as np
     import datetime
     receptiveField = 6
@@ -274,9 +287,15 @@ def getTrainingData(dataSize):
         yData[i] = GPM_data[i,0]
 
     
+    return xData, yData
 #%%
 
-getTrainingData(1000)
+xData, yData = getTrainingData(10)
+
+#%%
+print(xData)
+print(yData)
+plt.imshow(xData[0,:])
 #%%
    
 import h5py
