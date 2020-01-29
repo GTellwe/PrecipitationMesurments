@@ -39,7 +39,7 @@ def getFilesForHour(DATE):
     
     client = storage.Client.create_anonymous_client()
     bucket = client.bucket(bucket_name='gcp-public-data-goes-16', user_project=None)
-    PATH_Storage = 'ABI-L1b-RadC/%s' % (DATE.strftime('%Y/%j/%H')) 
+    PATH_Storage = 'ABI-L1b-RadF/%s' % (DATE.strftime('%Y/%j/%H')) 
     
     return bucket.list_blobs(prefix = PATH_Storage)
 
@@ -76,6 +76,9 @@ def downloadFile(FILE):
     blob.download_to_filename('data/'+FILE.split('/')[-1])
     
 def extractGeoData(filePATH, oldFilePath):
+    import xarray
+    from pyproj import Proj
+    import numpy as np
     global lons,lats
     if oldFilePath == filePATH:
         return
@@ -111,37 +114,47 @@ def extractGeoData(filePATH, oldFilePath):
     
 def getGEOData(longitude, latitude, TIME):
     from netCDF4 import Dataset
+    import numpy as np
     global oldFile
+   
+    import matplotlib.pyplot as plt
     '''
     returns the receptiveField by receptiveField pixel 10.8 radiance map for the geostationary 
     satelite at the time closest to TIME
     '''
+
+    
+    if longitude < minLongitde or longitude > maxLongitude or latitude < minLatitude or latitude >maxLatitide:
+        return np.zeros((receptiveField,receptiveField))
     
     # Download the data file
     filePATH  =getClosestFile(TIME)
+    FILE = 'data/'+filePATH.split('/')[-1]
+    
     downloadFile(filePATH)
     extractGeoData(filePATH, oldFile)
     oldFile = filePATH
-    d = np.zeros((lons.shape[0], lats.shape[1]))
     
     # calculate the minimal dinstance
-    idxLong = (np.abs(lons[int(lons.shape[0]/2),:] - lonitude)).argmin()
-    idxLats = (np.abs(lats[:,idxLong] - latitude)).argmin()
- 
+    X = np.abs(lons - longitude)
+    ind = np.where(X == X.min())
+    idxLong = ind[1][0]
+    idxLats = ind[0][0]
     square = 2
-    d = np.zeros((square*2,square*2))
-    minDistance = np.sqrt((lons[idxLong,idxLats]-lonitude)**2+(lats[idxLong,idxLats]-latitude)**2)
+    minDistance = np.sqrt((lons[idxLats,idxLong]-longitude)**2+(lats[idxLats,idxLong]-latitude)**2)
     print("initializing ndex search")
     for k in range(500):
-        for i in range(idxLong-square,idxLong+square):
-            for j in range(idxLats-square,idxLats+square):
-                distance = np.sqrt((lons[i,j]-lonitude)**2+(lats[i,j]-latitude)**2)
-                if(distance < minDistance):
-                    minDistance = distance
-                    idxLong = i
-                    idxLats = j
-    xIndex = idxLong
-    yIndex = idxLats
+        for j in range(idxLong-square,idxLong+square):
+            for i in range(idxLats-square,idxLats+square):
+                if j < lons.shape[1] and i < lons.shape[0]:
+                    distance = np.sqrt((lons[i,j]-longitude)**2+(lats[i,j]-latitude)**2)
+                    if(distance < minDistance):
+                        minDistance = distance
+                        idxLong = j
+                        idxLats = i
+    xIndex = idxLats
+    yIndex = idxLong
+    
     print("index search done")
     return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
         
@@ -288,9 +301,9 @@ def getTrainingData(dataSize):
 
     
     return xData, yData
-#%%
 
-xData, yData = getTrainingData(10)
+
+xData, yData = getTrainingData(100)
 
 #%%
 print(xData)
@@ -318,7 +331,7 @@ print(datetime.datetime.fromtimestamp(seconds+delta))
 #%%
 
 %matplotlib inline
-
+import matplotlib.pyplot as plt
 import numpy as np
 from datetime import datetime, timedelta
 from pyproj import Proj
