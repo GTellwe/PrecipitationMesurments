@@ -43,7 +43,7 @@ def getFilesForHour(DATE):
     
     return bucket.list_blobs(prefix = PATH_Storage)
 
-def getClosestFile(DATE):
+def getClosestFile(DATE, CHANNEL):
     import datetime
     import numpy as np
     '''
@@ -51,6 +51,8 @@ def getClosestFile(DATE):
     
     '''
     files_for_hour = list(map(lambda x : x.name, getFilesForHour(DATE)))
+   
+    files_for_hour = [file for file in files_for_hour if file.split('_')[1] == CHANNEL ]
     date_diff = map(lambda x: abs(datetime.strptime(x.split('_')[3], 's%Y%j%H%M%S%f')-DATE), files_for_hour)
     return '%s' % (files_for_hour[np.argmin(date_diff)]) 
 
@@ -80,6 +82,7 @@ def extractGeoData(filePATH, oldFilePath):
     from pyproj import Proj
     import numpy as np
     global lons,lats
+    
     if oldFilePath == filePATH:
         return
     
@@ -111,12 +114,32 @@ def extractGeoData(filePATH, oldFilePath):
     lons, lats = p(XX, YY, inverse=True)
     print("transformation done")
 
+def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude):
+      # calculate the minimal dinstance
+    X = np.abs(lons[int(lons.shape[0]/2),:] - longitude)
+    idxLong = np.where(X == X.min())[0][0]
+    X = np.abs(lats[:,idxLong] - latitude)
+    idxLats = np.where(X == X.min())[0][0]
+    square = 2
+    minDistance = np.sqrt((lons[idxLats,idxLong]-longitude)**2+(lats[idxLats,idxLong]-latitude)**2)
+  
+    for k in range(500):
+        for j in range(idxLong-square,idxLong+square):
+            for i in range(idxLats-square,idxLats+square):
+                if j < lons.shape[1] and i < lons.shape[0]:
+                    distance = np.sqrt((lons[i,j]-longitude)**2+(lats[i,j]-latitude)**2)
+                    if(distance < minDistance):
+                        minDistance = distance
+                        idxLong = j
+                        idxLats = i
+    return idxLats, idxLong
     
 def getGEOData(longitude, latitude, TIME):
     from netCDF4 import Dataset
     import numpy as np
     global oldFile
-   
+    
+    
     import matplotlib.pyplot as plt
     '''
     returns the receptiveField by receptiveField pixel 10.8 radiance map for the geostationary 
@@ -128,34 +151,16 @@ def getGEOData(longitude, latitude, TIME):
         return np.zeros((receptiveField,receptiveField))
     
     # Download the data file
-    filePATH  =getClosestFile(TIME)
+   
+    filePATH  =getClosestFile(TIME, 'ABI-L1b-RadF-M6C15')
     FILE = 'data/'+filePATH.split('/')[-1]
-    
+  
     downloadFile(filePATH)
     extractGeoData(filePATH, oldFile)
     oldFile = filePATH
-    
-    # calculate the minimal dinstance
-    X = np.abs(lons - longitude)
-    ind = np.where(X == X.min())
-    idxLong = ind[1][0]
-    idxLats = ind[0][0]
-    square = 2
-    minDistance = np.sqrt((lons[idxLats,idxLong]-longitude)**2+(lats[idxLats,idxLong]-latitude)**2)
-    print("initializing ndex search")
-    for k in range(500):
-        for j in range(idxLong-square,idxLong+square):
-            for i in range(idxLats-square,idxLats+square):
-                if j < lons.shape[1] and i < lons.shape[0]:
-                    distance = np.sqrt((lons[i,j]-longitude)**2+(lats[i,j]-latitude)**2)
-                    if(distance < minDistance):
-                        minDistance = distance
-                        idxLong = j
-                        idxLats = i
-    xIndex = idxLats
-    yIndex = idxLong
-    
-    print("index search done")
+  
+    xIndex, yIndex = getIndexOfGeoDataMatricFromLongitudeLatitude(longitude,latitude)
+   # print(minDistance)
     return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
         
 def getGPMFilesForSpecificDay(DATE):
@@ -244,6 +249,13 @@ def getGPMData(DATE, maxDataSize):
         longitude = f['NS']['Longitude'][:].flatten()
         latitude = f['NS']['Latitude'][:].flatten()
         time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
+      
+        # remove all the missing values
+        indexes = np.where(np.abs(precepTotRate) < 200)[0]
+        precepTotRate = precepTotRate[indexes]
+        longitude = longitude[indexes]
+        latitude = latitude[indexes]
+        time = time[indexes]
         
         index1 = min(maxDataSize,index+len(precepTotRate))
         
@@ -252,12 +264,14 @@ def getGPMData(DATE, maxDataSize):
         data[index:index1,2] = latitude[:index1-(index+len(precepTotRate))]
         data[index:index1,3] = time[:index1-(index+len(precepTotRate))]
         
+        
+        
         index = index + len(precepTotRate)
         
         if index > maxDataSize:
             break
         
-        
+      
     return data
    
 def convertTimeStampToDatetime(timestamp):
@@ -303,43 +317,69 @@ def getTrainingData(dataSize):
     return xData, yData
 
 
+
 xData, yData = getTrainingData(100)
 
+
 #%%
-print(xData)
-print(yData)
-plt.imshow(xData[0,:])
-#%%
+def plotGPMData(GPM_data):
+    import numpy as np
+    from scipy.interpolate import griddata
    
-import h5py
-filename = 'data/2B.GPM.DPRGMI.CORRA2018.20200126-S004153-E021426.033577.V06A.hdf5'
-f = h5py.File(filename, 'r')
-print(f.keys())
-print(f['NS'].keys())
-print(f['nrayNS_idx'].shape[0])
-#print(f['NS'][].shape)
-print(f['NS']['navigation']['timeMidScan'][0])
-seconds = f['NS']['navigation']['timeMidScan'][0]
-UNIXTime = datetime.datetime(1970,1,1)
-GPSTime = datetime.datetime(1980,1,6)
-delta = (GPSTime-UNIXTime).total_seconds()
+    extent1  = [min(GPM_data[:,1]),max(GPM_data[:,1]),min(GPM_data[:,2]),max(GPM_data[:,2])]
+    grid_x, grid_y = np.mgrid[extent1[0]:extent1[1]:200j, extent1[2]:extent1[3]:200j]
+    points = GPM_data[:,1:3]
+    values = GPM_data[:,0]*1000
+    grid_z0 = griddata(points,values, (grid_x, grid_y), method='cubic')
+    import matplotlib.pyplot as plt
+    plt.figure(figsize=(20,10))
+    plt.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
 
-print(datetime.datetime.fromtimestamp(seconds+delta))
+def plotGEOData(FILE, extent):
+    import numpy as np
+    from netCDF4 import Dataset
+    import matplotlib.pyplot as plt
+    xmin, ymin = getIndexOfGeoDataMatricFromLongitudeLatitude(extent[0],extent[3])
+    xmax, ymax = getIndexOfGeoDataMatricFromLongitudeLatitude(extent[1],extent[2])
+    print(xmin)
+    print(xmax)
+    print(ymin)
+    print(ymax)
+    
+    plt.figure(figsize=(20,10))
+    plt.imshow(Dataset(FILE,'r')['Rad'][xmin:xmax,ymin:ymax])
+
+
+FILE = 'data/'+'OR_ABI-L1b-RadF-M6C15_G16_s20200260200156_e20200260209470_c20200260209555.nc'
+plotGEOData(FILE,[-70,-51,-11,2.5])
 
 #%%
+import datetime as datetime
+dataSize = 10000
+GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize)
+plotGPMData(GPM_data)
+#%%
+getGEOData(GPM_data[0,1], GPM_data[0,2],convertTimeStampToDatetime(GPM_data[0,3]))
 
 #%%
-
-%matplotlib inline
 import matplotlib.pyplot as plt
-import numpy as np
-from datetime import datetime, timedelta
-from pyproj import Proj
+
+for i in range(10):
+    plt.figure()
+    plt.imshow(xData[i,:,:])
+#%%
+plt.plot(yData)    
+
+#%%
+    
 import xarray
-import matplotlib.pyplot as plt
-#from mpl_toolkits.basemap import Basemap
-from netCDF4 import Dataset
-FILE = 'data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc'
+from pyproj import Proj
+import numpy as np
+global lons,lats
+
+
+FILE = 'data/'+'OR_ABI-L1b-RadF-M6C15_G16_s20200260200156_e20200260209470_c20200260209555.nc'
+
 C = xarray.open_dataset(FILE)
 
 # Satellite height
@@ -362,28 +402,12 @@ p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
 # Perform cartographic transformation. That is, convert image projection coordinates (x and y)
 # to latitude and longitude values.
 XX, YY = np.meshgrid(x, y)
+print("traonsfrming data")
 lons, lats = p(XX, YY, inverse=True)
+print("transformation done")
 
-#%% calculate the minimal dinstance
-lonitude = -110
-latitude = 35
-
-
-#print(d)     
-#%%
-plt.imshow(d)  
-#%%
-print(minDistance)
-print(lons[idxLong,idxLats])
-print(lats[idxLong,idxLats])
-
-print(idxLong)
-print(idxLats)
 #%%
 
-df = y.to_dataframe()
-print(df.shape)
-plt.plot(lons[1,:])
-#plt.imshow(lats)
-print(lons[1,1500:1550])
-print(lats.shape)
+
+#%%
+plt.plot(GPM_data[:,0])
