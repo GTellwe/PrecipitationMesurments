@@ -22,7 +22,7 @@ import numpy as np
 #%% Functions
 
 # Constants
-receptiveField = 6
+receptiveField = 28
 maxLongitude = -51
 minLongitde = -70
 maxLatitide = 2.5
@@ -39,12 +39,18 @@ def getFilesForHour(DATE):
     
     client = storage.Client.create_anonymous_client()
     bucket = client.bucket(bucket_name='gcp-public-data-goes-16', user_project=None)
+    #hour = int(DATE.strftime('%H'))
     PATH_Storage = 'ABI-L1b-RadF/%s' % (DATE.strftime('%Y/%j/%H')) 
-    
+    #print(DATE)
+    #print(PATH_Storage)
     return bucket.list_blobs(prefix = PATH_Storage)
+def getMiddleTime(FILE):
+    import datetime
+    middleTimeDifference =(datetime.datetime.strptime(FILE.split('_')[4], 'e%Y%j%H%M%S%f')-datetime.datetime.strptime(FILE.split('_')[3], 's%Y%j%H%M%S%f')).total_seconds()
+    return (datetime.datetime.strptime(FILE.split('_')[3], 's%Y%j%H%M%S%f')+datetime.timedelta(0, int(middleTimeDifference/2)))
 
 def getClosestFile(DATE, CHANNEL):
-    import datetime
+    from datetime import datetime
     import numpy as np
     '''
     Returns the filepath closest to the DATE object
@@ -53,8 +59,20 @@ def getClosestFile(DATE, CHANNEL):
     files_for_hour = list(map(lambda x : x.name, getFilesForHour(DATE)))
    
     files_for_hour = [file for file in files_for_hour if file.split('_')[1] == CHANNEL ]
-    date_diff = map(lambda x: abs(datetime.strptime(x.split('_')[3], 's%Y%j%H%M%S%f')-DATE), files_for_hour)
-    return '%s' % (files_for_hour[np.argmin(date_diff)]) 
+    date_diff = np.zeros((len(files_for_hour),1))
+    #print(files_for_hour)
+    for i in range(len(files_for_hour)):
+        
+        middleTime = getMiddleTime(files_for_hour[i])
+        
+        date_diff[i] = np.abs((DATE-middleTime).total_seconds())
+        #print(totalMiddleTime)
+        #print(totalSecondsData)
+    #print(date_diff[:,0]) 
+    #print(np.argmin(date_diff[:,0]))
+    #print(files_for_hour[1])
+    #print('%s' % (files_for_hour[np.argmin(date_diff[:,0])]))
+    return '%s' % (files_for_hour[np.argmin(date_diff[:,0])]) 
 
 def downloadFile(FILE):
     '''
@@ -115,6 +133,7 @@ def extractGeoData(filePATH, oldFilePath):
     print("transformation done")
 
 def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude):
+    import numpy as np
       # calculate the minimal dinstance
     X = np.abs(lons[int(lons.shape[0]/2),:] - longitude)
     idxLong = np.where(X == X.min())[0][0]
@@ -138,9 +157,10 @@ def getGEOData(longitude, latitude, TIME):
     from netCDF4 import Dataset
     import numpy as np
     global oldFile
+    from datetime import datetime
     
     
-    import matplotlib.pyplot as plt
+    
     '''
     returns the receptiveField by receptiveField pixel 10.8 radiance map for the geostationary 
     satelite at the time closest to TIME
@@ -152,7 +172,7 @@ def getGEOData(longitude, latitude, TIME):
     
     # Download the data file
    
-    filePATH  =getClosestFile(TIME, 'ABI-L1b-RadF-M6C15')
+    filePATH  =getClosestFile(TIME, 'ABI-L1b-RadF-M6C13')
     FILE = 'data/'+filePATH.split('/')[-1]
   
     downloadFile(filePATH)
@@ -160,8 +180,7 @@ def getGEOData(longitude, latitude, TIME):
     oldFile = filePATH
   
     xIndex, yIndex = getIndexOfGeoDataMatricFromLongitudeLatitude(longitude,latitude)
-   # print(minDistance)
-    return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)]
+    return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
         
 def getGPMFilesForSpecificDay(DATE):
     '''
@@ -229,6 +248,7 @@ def getGPMData(DATE, maxDataSize):
             2: time
             3: rain amount
     '''
+    
     import h5py
     import numpy as np
     data = np.zeros((maxDataSize,4))
@@ -249,7 +269,9 @@ def getGPMData(DATE, maxDataSize):
         longitude = f['NS']['Longitude'][:].flatten()
         latitude = f['NS']['Latitude'][:].flatten()
         time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
-      
+        print(FILENAME)
+        print(convertTimeStampToDatetime(time[0]))
+        print(convertTimeStampToDatetime(time[-1]))
         # remove all the missing values
         indexes = np.where(np.abs(precepTotRate) < 200)[0]
         precepTotRate = precepTotRate[indexes]
@@ -275,23 +297,23 @@ def getGPMData(DATE, maxDataSize):
     return data
    
 def convertTimeStampToDatetime(timestamp):
-    import datetime
-    UNIXTime = datetime.datetime(1970,1,1)
-    GPSTime = datetime.datetime(1980,1,6)
-    delta = (GPSTime-UNIXTime).total_seconds()
-    return datetime.datetime.fromtimestamp(timestamp+delta)
+    from datetime import datetime, timedelta
+    return datetime(1980, 1, 6) + timedelta(seconds=timestamp - (35 - 19))
+    
 
 def getTrainingData(dataSize):
     
     import numpy as np
     import datetime
-    receptiveField = 6
+    receptiveField = 28
 
     '''
     returns a set that conisit of radiance data for an area around every pixel
     in the given area together with its label
     '''
+    
     xData = np.zeros((dataSize,receptiveField,receptiveField))
+    times = np.zeros((dataSize,2))
     yData = np.zeros((dataSize,1))
     '''
         First step is to get the label data. To do this, we look at a specifi
@@ -304,21 +326,51 @@ def getTrainingData(dataSize):
             3: rain amount
     '''
     GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize)
+    times[:,0] = GPM_data[:,3]
     '''
     next step is to pair the label with the geostattionary data.
     '''
     
     for i in range(dataSize):
         print(i)
-        xData[i,:,:] = getGEOData(GPM_data[i,1], GPM_data[i,2],convertTimeStampToDatetime(GPM_data[i,3]))
+        xData[i,:,:], times[i,1] = getGEOData(GPM_data[i,1], GPM_data[i,2],convertTimeStampToDatetime(GPM_data[i,3]))
         yData[i] = GPM_data[i,0]
 
     
-    return xData, yData
+    return xData, yData, times
+#GPM_data = getGPMData(datetime.datetime(2020,1,26),20)
+
+xData, yData , times = getTrainingData(100)
 
 
+#%%
+print(xData.shape)
+#%%
+from typhon.retrieval import qrnn 
+import numpy as np
+# reshape data for the QRNN
+newXData = np.reshape(xData,(xData.shape[0],xData.shape[1]*xData.shape[2]))
+print(newXData.shape)
+print(xData.shape)
+print(yData.shape)
+#%%
+quantiles = [0.1,0,2.0,3,0.4,0.5,0.6,0.7,0.8,0.9,1]
+input_dim = newXData.shape[1]
+model = qrnn.QRNN(input_dim,quantiles)
 
-xData, yData = getTrainingData(100)
+xTrain = newXData
+yTrain = yData
+print(xTrain)
+from sklearn import preprocessing
+import numpy as np
+xTrain = preprocessing.scale(xTrain)
+#xVal = newXData[80:,:]
+#yVal = np.reshape(yData[80:,0],(20,1))
+ 
+print(xTrain)
+
+#model.fit(x_train = xTrain, y_train = yTrain,batch_size = 40,maximum_epochs = 50)
+
 
 
 #%%
@@ -336,21 +388,62 @@ def plotGPMData(GPM_data):
     plt.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
 
 def plotGEOData(FILE, extent):
+    
     import numpy as np
     from netCDF4 import Dataset
     import matplotlib.pyplot as plt
+    from mpl_toolkits.basemap import Basemap
+    FILE = 'data/'+FILE
+    
+    C = xarray.open_dataset(FILE)
+    
+    # Satellite height
+    sat_h = C['goes_imager_projection'].perspective_point_height
+    
+    # Satellite longitude
+    sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+    
+    # Satellite sweep
+    sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+    
+    # The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
+    # See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
+    x = C['x'][:] * sat_h
+    y = C['y'][:] * sat_h
+    #Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
+    # Create a pyproj geostationary map object
+    p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+    
+    # Perform cartographic transformation. That is, convert image projection coordinates (x and y)
+    # to latitude and longitude values.
     xmin, ymin = getIndexOfGeoDataMatricFromLongitudeLatitude(extent[0],extent[3])
     xmax, ymax = getIndexOfGeoDataMatricFromLongitudeLatitude(extent[1],extent[2])
-    print(xmin)
-    print(xmax)
-    print(ymin)
-    print(ymax)
+    XX, YY = np.meshgrid(x[xmin:xmax], y[ymin:ymax])
+    print("traonsfrming data")
+    lons, lats = p(XX, YY, inverse=True)
+    print("transformation done")
     
+    mL = Basemap(resolution='i', projection='lcc', area_thresh=5000, \
+             width=3000*3000, height=2500*3000, \
+             lat_1=38.5, lat_2=38.5, \
+             lat_0=38.5, lon_0=-97.5)
+    plt.figure(figsize=[15, 12])
+
+    # We need an array the shape of the data, so use R. The color of each pixel will be set by color=colorTuple.
+    newmap = mL.pcolormesh(lons, lats,Dataset(FILE,'r')['Rad'][xmin:xmax,ymin:ymax], linewidth=0, latlon=True)
+    newmap.set_array(None) # Without this line the RGB colorTuple is ignored and only R is plotted.
+    
+    mL.drawcoastlines()
+    mL.drawcountries()
+    mL.drawstates()
+    
+    #plt.title('GOES-16 True Color', loc='left', fontweight='semibold', fontsize=15)
+    #plt.title('%s' % scan_start.strftime('%d %B %Y %H:%M UTC'), loc='right');
     plt.figure(figsize=(20,10))
     plt.imshow(Dataset(FILE,'r')['Rad'][xmin:xmax,ymin:ymax])
 
 
-FILE = 'data/'+'OR_ABI-L1b-RadF-M6C15_G16_s20200260200156_e20200260209470_c20200260209555.nc'
+FILE = 'data/'+'OR_ABI-L1b-RadF-M6C13_G16_s20200260200156_e20200260209476_c20200260209539.nc'
 plotGEOData(FILE,[-70,-51,-11,2.5])
 
 #%%
@@ -363,15 +456,17 @@ getGEOData(GPM_data[0,1], GPM_data[0,2],convertTimeStampToDatetime(GPM_data[0,3]
 
 #%%
 import matplotlib.pyplot as plt
-
-for i in range(10):
-    plt.figure()
+import numpy as np
+for i in range(50):
+    
+    fig = plt.figure()
+    fig.suptitle('timediff %s, rainfall %s' % (np.abs(times[i,0]-times[i,1]), yData[i]), fontsize=20)
     plt.imshow(xData[i,:,:])
+    #print(yData[i])
 #%%
 plt.plot(yData)    
 
 #%%
-    
 import xarray
 from pyproj import Proj
 import numpy as np
@@ -407,7 +502,35 @@ lons, lats = p(XX, YY, inverse=True)
 print("transformation done")
 
 #%%
+import datetime
+FILE = 'OR_ABI-L1b-RadF-M6C15_G16_s20200260200156_e20200260209470_c20200260209555.nc'
 
+#print(convertTimeStampToDatetime(middle))
+#print(datetime.fromtimestamp(middle).strftime("%A, %B %d, %Y %I:%M:%S"))
 
 #%%
-plt.plot(GPM_data[:,0])
+import datetime
+a = datetime.datetime(100,1,1,11,34,59)
+b = a + datetime.timedelta(0,3) 
+print(a)
+print(datetime.timedelta(0,3))# days, seconds, then other fields.
+print (a.time())
+print( b.time())
+#%%
+import h5py
+FILENAME = '2B.GPM.DPRGMI.CORRA2018.20200126-S004153-E021426.033577.V06A.hdf5'
+path =  'data/'+FILENAME
+f = h5py.File(path, 'r')
+precepTotRate = f['NS']['surfPrecipTotRate'][:].flatten()
+longitude = f['NS']['Longitude'][:].flatten()
+latitude = f['NS']['Latitude'][:].flatten()
+time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
+times = f['NS']['navigation']['timeMidScan'][:].flatten()
+#print(times)
+
+def getTime(time):
+    from datetime import datetime, timedelta
+    utc = datetime(1980, 1, 6) + timedelta(seconds=time - (35 - 19))
+    print(utc)
+getTime(times[0])
+getTime(times[-1])    
