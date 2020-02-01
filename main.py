@@ -534,3 +534,84 @@ def getTime(time):
     print(utc)
 getTime(times[0])
 getTime(times[-1])    
+
+#%%
+from datetime import datetime
+
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+import metpy  # noqa: F401
+import numpy as np
+import xarray
+maxLongitude = -51
+minLongitde = -70
+maxLatitide = 2.5
+minLatitude = -11
+
+# Open the file with xarray.
+# The opened file is assigned to "C" for the CONUS domain.
+
+FILE = ('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc')
+C = xarray.open_dataset(FILE)
+#print(C['Rad'].data)
+RGB = C['Rad'].data
+
+# We'll use the `CMI_C02` variable as a 'hook' to get the CF metadata.
+dat = C.metpy.parse_cf('Rad')
+
+geos = dat.metpy.cartopy_crs
+
+x = dat.metpy.x
+y = dat.metpy.y
+#long = dat.metpy.longitude
+#lat = dat.metpy.latitude
+#print(long)
+
+
+fig = plt.figure(figsize=(15, 12))
+# Generate an Cartopy projection
+pc = ccrs.PlateCarree()
+ax = fig.add_subplot(1, 1, 1, projection=pc)
+ax.set_extent([-90, -30, -30, 20], crs=ccrs.PlateCarree())
+
+
+ax.imshow(RGB, origin='upper',
+          extent=(x.min(), x.max(), y.min(), y.max()),
+          transform=geos,
+          interpolation='none')
+ax.coastlines(resolution='50m', color='black', linewidth=0.5)
+ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+ax.add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+
+plt.title('GOES-16 True Color', loc='left', fontweight='bold', fontsize=15)
+#plt.title('{}'.format(scan_start.strftime('%d %B %Y %H:%M UTC ')), loc='right')
+
+plt.show()
+
+#%%
+import matplotlib.pyplot as plt
+import cartopy.crs as ccrs
+import cartopy.feature as cfeature
+from matplotlib.offsetbox import AnchoredText
+ax = plt.axes(projection=ccrs.PlateCarree())
+ax.set_extent([-90, -30, -30, 20])
+
+# Put a background image on for nice sea rendering.
+#ax.stock_img()
+
+# Create a feature for States/Admin 1 regions at 1:50m from Natural Earth
+states_provinces = cfeature.NaturalEarthFeature(
+category='cultural',
+name='admin_1_states_provinces_lines',
+scale='50m',
+facecolor='none')
+
+SOURCE = 'Natural Earth'
+LICENSE = 'public domain'
+
+ax.add_feature(cfeature.LAND)
+ax.add_feature(cfeature.COASTLINE)
+ax.add_feature(cfeature.BORDERS)
+ax.add_feature(states_provinces, edgecolor='gray')
+
+plt.show()
