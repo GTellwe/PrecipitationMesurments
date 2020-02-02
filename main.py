@@ -340,7 +340,7 @@ def getTrainingData(dataSize):
     return xData, yData, times
 #GPM_data = getGPMData(datetime.datetime(2020,1,26),20)
 
-xData, yData , times = getTrainingData(100)
+#xData, yData , times = getTrainingData(100)
 
 
 #%%
@@ -374,82 +374,53 @@ print(xTrain)
 
 
 #%%
-def plotGPMData(GPM_data):
+def plotGPMData(DATE, extent):
     import numpy as np
     from scipy.interpolate import griddata
-   
+    import xarray
+    import cartopy.crs as ccrs
+    import matplotlib.pyplot as plt
+    
+    fig = plt.figure(figsize=(15, 12))
+    
+    # Generate an Cartopy projection
+    pc = ccrs.PlateCarree()
+    ax = fig.add_subplot(1, 1, 1, projection=pc)
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    
+    
+    
+    ax.coastlines(resolution='50m', color='black', linewidth=0.5)
+    #ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+    ax.add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+    
+    #plt.title('GOES-16 True Color', loc='left', fontweight='bold', fontsize=15)
+    #plt.title('{}'.format(scan_start.strftime('%d %B %Y %H:%M UTC ')), loc='right')
+    
+    dataSize = 10000
+    GPM_data = getGPMData(DATE,dataSize)
+    
     extent1  = [min(GPM_data[:,1]),max(GPM_data[:,1]),min(GPM_data[:,2]),max(GPM_data[:,2])]
     grid_x, grid_y = np.mgrid[extent1[0]:extent1[1]:200j, extent1[2]:extent1[3]:200j]
     points = GPM_data[:,1:3]
-    values = GPM_data[:,0]*1000
-    grid_z0 = griddata(points,values, (grid_x, grid_y), method='cubic')
-    import matplotlib.pyplot as plt
-    plt.figure(figsize=(20,10))
-    plt.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
-
-def plotGEOData(FILE, extent):
+    values = GPM_data[:,0]
+    print(values.max())
+    upper_threshold = 10
+    indexPosList = [ i for i in range(len(values)) if values[i] >upper_threshold]
+    #print(indexPosList)
+    values[indexPosList] = upper_threshold
+    #print(values.max())
+    grid_z0 = griddata(points,values, (grid_x, grid_y), method='linear')
+    ax.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
+    #plt.colorbar()
+    #print(np.nan_to_num(grid_z0).max())
     
-    import numpy as np
-    from netCDF4 import Dataset
-    import matplotlib.pyplot as plt
-    from mpl_toolkits.basemap import Basemap
-    FILE = 'data/'+FILE
+import datetime as datetime
     
-    C = xarray.open_dataset(FILE)
-    
-    # Satellite height
-    sat_h = C['goes_imager_projection'].perspective_point_height
-    
-    # Satellite longitude
-    sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
-    
-    # Satellite sweep
-    sat_sweep = C['goes_imager_projection'].sweep_angle_axis
-    
-    # The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
-    # See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
-    x = C['x'][:] * sat_h
-    y = C['y'][:] * sat_h
-    #Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
-    # Create a pyproj geostationary map object
-    p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
-    
-    # Perform cartographic transformation. That is, convert image projection coordinates (x and y)
-    # to latitude and longitude values.
-    xmin, ymin = getIndexOfGeoDataMatricFromLongitudeLatitude(extent[0],extent[3])
-    xmax, ymax = getIndexOfGeoDataMatricFromLongitudeLatitude(extent[1],extent[2])
-    XX, YY = np.meshgrid(x[xmin:xmax], y[ymin:ymax])
-    print("traonsfrming data")
-    lons, lats = p(XX, YY, inverse=True)
-    print("transformation done")
-    
-    mL = Basemap(resolution='i', projection='lcc', area_thresh=5000, \
-             width=3000*3000, height=2500*3000, \
-             lat_1=38.5, lat_2=38.5, \
-             lat_0=38.5, lon_0=-97.5)
-    plt.figure(figsize=[15, 12])
-
-    # We need an array the shape of the data, so use R. The color of each pixel will be set by color=colorTuple.
-    newmap = mL.pcolormesh(lons, lats,Dataset(FILE,'r')['Rad'][xmin:xmax,ymin:ymax], linewidth=0, latlon=True)
-    newmap.set_array(None) # Without this line the RGB colorTuple is ignored and only R is plotted.
-    
-    mL.drawcoastlines()
-    mL.drawcountries()
-    mL.drawstates()
-    
-    #plt.title('GOES-16 True Color', loc='left', fontweight='semibold', fontsize=15)
-    #plt.title('%s' % scan_start.strftime('%d %B %Y %H:%M UTC'), loc='right');
-    plt.figure(figsize=(20,10))
-    plt.imshow(Dataset(FILE,'r')['Rad'][xmin:xmax,ymin:ymax])
-
-
-FILE = 'data/'+'OR_ABI-L1b-RadF-M6C13_G16_s20200260200156_e20200260209476_c20200260209539.nc'
-plotGEOData(FILE,[-70,-51,-11,2.5])
-
+plotGPMData(datetime.datetime(2020,1,26),[-90, -30, -30, 20])
 #%%
 import datetime as datetime
-dataSize = 10000
-GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize)
+
 plotGPMData(GPM_data)
 #%%
 getGEOData(GPM_data[0,1], GPM_data[0,2],convertTimeStampToDatetime(GPM_data[0,3]))
@@ -464,154 +435,62 @@ for i in range(50):
     plt.imshow(xData[i,:,:])
     #print(yData[i])
 #%%
-plt.plot(yData)    
 
+def plotGOESData(FILE, extent):
+    from datetime import datetime
+    import cartopy.crs as ccrs
+    import matplotlib.pyplot as plt
+    import metpy  # noqa: F401
+    import numpy as np
+    import xarray
+    # Open the file with xarray.
+    # The opened file is assigned to "C" for the CONUS domain.
+    
+    #FILE = ('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc')
+    C = xarray.open_dataset(FILE)
+    #print(C['Rad'].data)
+    RGB = C['Rad'].data
+    
+    # We'll use the `CMI_C02` variable as a 'hook' to get the CF metadata.
+    dat = C.metpy.parse_cf('Rad')
+    
+    geos = dat.metpy.cartopy_crs
+    
+    x = dat.metpy.x
+    y = dat.metpy.y
+    #long = dat.metpy.longitude
+    #lat = dat.metpy.latitude
+    #print(long)
+    
+    
+    fig = plt.figure(figsize=(15, 12))
+    # Generate an Cartopy projection
+    pc = ccrs.PlateCarree()
+    ax = fig.add_subplot(1, 1, 1, projection=pc)
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    
+    
+    ax.imshow(RGB, origin='upper',
+              extent=(x.min(), x.max(), y.min(), y.max()),
+              transform=geos,
+              interpolation='none')
+    ax.coastlines(resolution='50m', color='black', linewidth=0.5)
+    #ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+    ax.add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+    
+    #plt.title('GOES-16 True Color', loc='left', fontweight='bold', fontsize=15)
+    #plt.title('{}'.format(scan_start.strftime('%d %B %Y %H:%M UTC ')), loc='right')
+    
+    plt.show()
+plotGOESData('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc',[-90, -30, -30, 20])
 #%%
-import xarray
-from pyproj import Proj
 import numpy as np
-global lons,lats
 
 
-FILE = 'data/'+'OR_ABI-L1b-RadF-M6C15_G16_s20200260200156_e20200260209470_c20200260209555.nc'
+lon = np.linspace(-80, 80, 25)
+lat = np.linspace(30, 70, 25)
+lon2d, lat2d = np.meshgrid(lon, lat)
 
-C = xarray.open_dataset(FILE)
-
-# Satellite height
-sat_h = C['goes_imager_projection'].perspective_point_height
-
-# Satellite longitude
-sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
-
-# Satellite sweep
-sat_sweep = C['goes_imager_projection'].sweep_angle_axis
-
-# The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
-# See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
-x = C['x'][:] * sat_h
-y = C['y'][:] * sat_h
-#Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
-# Create a pyproj geostationary map object
-p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
-
-# Perform cartographic transformation. That is, convert image projection coordinates (x and y)
-# to latitude and longitude values.
-XX, YY = np.meshgrid(x, y)
-print("traonsfrming data")
-lons, lats = p(XX, YY, inverse=True)
-print("transformation done")
-
-#%%
-import datetime
-FILE = 'OR_ABI-L1b-RadF-M6C15_G16_s20200260200156_e20200260209470_c20200260209555.nc'
-
-#print(convertTimeStampToDatetime(middle))
-#print(datetime.fromtimestamp(middle).strftime("%A, %B %d, %Y %I:%M:%S"))
-
-#%%
-import datetime
-a = datetime.datetime(100,1,1,11,34,59)
-b = a + datetime.timedelta(0,3) 
-print(a)
-print(datetime.timedelta(0,3))# days, seconds, then other fields.
-print (a.time())
-print( b.time())
-#%%
-import h5py
-FILENAME = '2B.GPM.DPRGMI.CORRA2018.20200126-S004153-E021426.033577.V06A.hdf5'
-path =  'data/'+FILENAME
-f = h5py.File(path, 'r')
-precepTotRate = f['NS']['surfPrecipTotRate'][:].flatten()
-longitude = f['NS']['Longitude'][:].flatten()
-latitude = f['NS']['Latitude'][:].flatten()
-time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
-times = f['NS']['navigation']['timeMidScan'][:].flatten()
-#print(times)
-
-def getTime(time):
-    from datetime import datetime, timedelta
-    utc = datetime(1980, 1, 6) + timedelta(seconds=time - (35 - 19))
-    print(utc)
-getTime(times[0])
-getTime(times[-1])    
-
-#%%
-from datetime import datetime
-
-import cartopy.crs as ccrs
-import matplotlib.pyplot as plt
-import metpy  # noqa: F401
-import numpy as np
-import xarray
-maxLongitude = -51
-minLongitde = -70
-maxLatitide = 2.5
-minLatitude = -11
-
-# Open the file with xarray.
-# The opened file is assigned to "C" for the CONUS domain.
-
-FILE = ('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc')
-C = xarray.open_dataset(FILE)
-#print(C['Rad'].data)
-RGB = C['Rad'].data
-
-# We'll use the `CMI_C02` variable as a 'hook' to get the CF metadata.
-dat = C.metpy.parse_cf('Rad')
-
-geos = dat.metpy.cartopy_crs
-
-x = dat.metpy.x
-y = dat.metpy.y
-#long = dat.metpy.longitude
-#lat = dat.metpy.latitude
-#print(long)
-
-
-fig = plt.figure(figsize=(15, 12))
-# Generate an Cartopy projection
-pc = ccrs.PlateCarree()
-ax = fig.add_subplot(1, 1, 1, projection=pc)
-ax.set_extent([-90, -30, -30, 20], crs=ccrs.PlateCarree())
-
-
-ax.imshow(RGB, origin='upper',
-          extent=(x.min(), x.max(), y.min(), y.max()),
-          transform=geos,
-          interpolation='none')
-ax.coastlines(resolution='50m', color='black', linewidth=0.5)
-ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
-ax.add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
-
-plt.title('GOES-16 True Color', loc='left', fontweight='bold', fontsize=15)
-#plt.title('{}'.format(scan_start.strftime('%d %B %Y %H:%M UTC ')), loc='right')
-
-plt.show()
-
-#%%
-import matplotlib.pyplot as plt
-import cartopy.crs as ccrs
-import cartopy.feature as cfeature
-from matplotlib.offsetbox import AnchoredText
-ax = plt.axes(projection=ccrs.PlateCarree())
-ax.set_extent([-90, -30, -30, 20])
-
-# Put a background image on for nice sea rendering.
-#ax.stock_img()
-
-# Create a feature for States/Admin 1 regions at 1:50m from Natural Earth
-states_provinces = cfeature.NaturalEarthFeature(
-category='cultural',
-name='admin_1_states_provinces_lines',
-scale='50m',
-facecolor='none')
-
-SOURCE = 'Natural Earth'
-LICENSE = 'public domain'
-
-ax.add_feature(cfeature.LAND)
-ax.add_feature(cfeature.COASTLINE)
-ax.add_feature(cfeature.BORDERS)
-ax.add_feature(states_provinces, edgecolor='gray')
-
-plt.show()
+data = np.cos(np.deg2rad(lat2d) * 4) + np.sin(np.deg2rad(lon2d) * 4)
+print(data.shape)
+print(lon2d)
