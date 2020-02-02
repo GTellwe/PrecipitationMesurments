@@ -22,6 +22,7 @@ import numpy as np
 #%% Functions
 
 # Constants
+rad = []
 receptiveField = 28
 maxLongitude = -51
 minLongitde = -70
@@ -100,15 +101,24 @@ def extractGeoData(filePATH, oldFilePath):
     from pyproj import Proj
     import numpy as np
     global lons,lats
+    global rad
+    global x_data
+    global y_data
+    global sat_h
+    global sat_lon
+    global sat_sweep
     
+    maxLongitude = -40
+    minLongitde = -80
+    maxLatitide = 8
+    minLatitude = -20
     if oldFilePath == filePATH:
-        return
+        return 
     
     FILE = 'data/'+filePATH.split('/')[-1]
     
     C = xarray.open_dataset(FILE)
     
-    # Satellite height
     sat_h = C['goes_imager_projection'].perspective_point_height
     
     # Satellite longitude
@@ -119,19 +129,58 @@ def extractGeoData(filePATH, oldFilePath):
     
     # The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
     # See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
-    x = C['x'][:] * sat_h
-    y = C['y'][:] * sat_h
+    x_new = C['x'][:] * sat_h
+    y_new = C['y'][:] * sat_h
+    #x = C['x'][:] 
+    #y = C['y'][:] 
+    rad = C['Rad']
     #Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
     # Create a pyproj geostationary map object
-    p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
     
+    p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+  
+
+    xmin_proj, ymax_proj = p(minLongitde, maxLatitide)
+    xmax_proj, ymin_proj = p(maxLongitude, minLatitude)
+    
+   
+    xmin_proj =min([xmin_proj,xmax_proj])
+    xmax_proj =max([xmin_proj,xmax_proj])
+    ymin_proj =min([ymin_proj,ymax_proj])
+    ymax_proj =max([ymin_proj,ymax_proj])
+    
+    
+    
+    
+    xmin_index = (np.abs(x_new.data-xmin_proj)).argmin()
+    xmax_index = (np.abs(x_new.data-xmax_proj)).argmin()
+    ymin_index = (np.abs(y_new.data-ymin_proj)).argmin()
+    ymax_index = (np.abs(y_new.data-ymax_proj)).argmin()
+     
+    
+    x_new = x_new[xmin_index:xmax_index]
+    y_new = y_new[ymax_index:ymin_index]
+   
+    x_new.coords['x'] = x_new.coords['x']* sat_h
+    y_new.coords['y'] = y_new.coords['y']* sat_h
+    
+    rad = rad[ymax_index:ymin_index,xmin_index:xmax_index]
+    rad.coords['x'] =rad.coords['x']*sat_h
+    rad.coords['y'] =rad.coords['y']*sat_h
+    
+    x = x_new
+    y = y_new
+    
+    x_data = x
+    y_data = y
     # Perform cartographic transformation. That is, convert image projection coordinates (x and y)
     # to latitude and longitude values.
     XX, YY = np.meshgrid(x, y)
     print("traonsfrming data")
     lons, lats = p(XX, YY, inverse=True)
+    #print(lons)
     print("transformation done")
-
+'''    
 def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude):
     import numpy as np
       # calculate the minimal dinstance
@@ -141,8 +190,10 @@ def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude):
     idxLats = np.where(X == X.min())[0][0]
     square = 2
     minDistance = np.sqrt((lons[idxLats,idxLong]-longitude)**2+(lats[idxLats,idxLong]-latitude)**2)
-  
+    threshold = 0.01
     for k in range(500):
+        if minDistance < threshold:
+            break
         for j in range(idxLong-square,idxLong+square):
             for i in range(idxLats-square,idxLats+square):
                 if j < lons.shape[1] and i < lons.shape[0]:
@@ -151,14 +202,36 @@ def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude):
                         minDistance = distance
                         idxLong = j
                         idxLats = i
+    print(minDistance)
     return idxLats, idxLong
+'''    
+def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude, sat_h, sat_lon, sat_sweep, x_data,y_data):
+    # project the longitude and latitude to geostationary references
+    from pyproj import Proj
+    import numpy as np
+    p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+    x, y = p(longitude, latitude)
+    
+    
+    # get the x and y indexes
+    x_index = (np.abs(x_data.data-x)).argmin()
+    y_index = (np.abs(y_data.data-y)).argmin()
+    
+  
+    return y_index, x_index
     
 def getGEOData(longitude, latitude, TIME):
     from netCDF4 import Dataset
     import numpy as np
     global oldFile
+    global rad
+    import time
     from datetime import datetime
-    
+    global x_data
+    global y_data
+    global sat_h
+    global sat_lon
+    global sat_sweep
     
     
     '''
@@ -174,13 +247,27 @@ def getGEOData(longitude, latitude, TIME):
    
     filePATH  =getClosestFile(TIME, 'ABI-L1b-RadF-M6C13')
     FILE = 'data/'+filePATH.split('/')[-1]
-  
+    
+   
     downloadFile(filePATH)
+   
+   
     extractGeoData(filePATH, oldFile)
+   
+   
+    
+    
     oldFile = filePATH
+    
   
-    xIndex, yIndex = getIndexOfGeoDataMatricFromLongitudeLatitude(longitude,latitude)
-    return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
+    xIndex, yIndex = getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude, sat_h, sat_lon, sat_sweep, x_data,y_data)
+   
+
+    
+    #print(xIndex)
+    #print(yIndex)
+    #return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
+    return rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
         
 def getGPMFilesForSpecificDay(DATE):
     '''
@@ -305,6 +392,7 @@ def getTrainingData(dataSize):
     
     import numpy as np
     import datetime
+    import time
     receptiveField = 28
 
     '''
@@ -325,24 +413,40 @@ def getTrainingData(dataSize):
             2: time
             3: rain amount
     '''
+    start_time = time.time()
     GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize)
     times[:,0] = GPM_data[:,3]
+    end_time = time.time()
+    print("time for collecting GPM Data %s" % (end_time-start_time))
     '''
     next step is to pair the label with the geostattionary data.
     '''
-    
+    start_time = time.time()
     for i in range(dataSize):
-        print(i)
+        #print(i)
         xData[i,:,:], times[i,1] = getGEOData(GPM_data[i,1], GPM_data[i,2],convertTimeStampToDatetime(GPM_data[i,3]))
         yData[i] = GPM_data[i,0]
 
-    
+    end_time = time.time()
+    print("time for collecting GEO Data %s" % (end_time-start_time))
     return xData, yData, times
-#GPM_data = getGPMData(datetime.datetime(2020,1,26),20)
-
-#xData, yData , times = getTrainingData(100)
 
 
+def plotTrainingData(xData,yData, times, nmbImages):
+    import matplotlib.pyplot as plt
+    import numpy as np
+    for i in range(nmbImages):
+        
+        fig = plt.figure()
+        fig.suptitle('timediff %s, rainfall %s' % (np.abs(times[i,0]-times[i,1]), yData[i]), fontsize=20)
+        plt.imshow(xData[i,:,:])
+        #print(yData[i])
+
+
+
+xData, yData , times = getTrainingData(100)
+#%%
+plotTrainingData(xData,yData,times, 100)
 #%%
 print(xData.shape)
 #%%
@@ -425,15 +529,7 @@ plotGPMData(GPM_data)
 #%%
 getGEOData(GPM_data[0,1], GPM_data[0,2],convertTimeStampToDatetime(GPM_data[0,3]))
 
-#%%
-import matplotlib.pyplot as plt
-import numpy as np
-for i in range(50):
-    
-    fig = plt.figure()
-    fig.suptitle('timediff %s, rainfall %s' % (np.abs(times[i,0]-times[i,1]), yData[i]), fontsize=20)
-    plt.imshow(xData[i,:,:])
-    #print(yData[i])
+
 #%%
 
 def plotGOESData(FILE, extent):
@@ -443,14 +539,83 @@ def plotGOESData(FILE, extent):
     import metpy  # noqa: F401
     import numpy as np
     import xarray
+    '''
+    maxLongitude = -51
+    minLongitde = -70
+    maxLatitide = 2.5
+    minLatitude = -11
+    '''
+    maxLongitude = -40
+    minLongitde = -80
+    maxLatitide = 8
+    minLatitude = -20
+
     # Open the file with xarray.
     # The opened file is assigned to "C" for the CONUS domain.
     
     #FILE = ('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc')
     C = xarray.open_dataset(FILE)
-    #print(C['Rad'].data)
-    RGB = C['Rad'].data
+     # Satellite height
+    sat_h = C['goes_imager_projection'].perspective_point_height
     
+    # Satellite longitude
+    sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+    
+    # Satellite sweep
+    sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+    
+    # The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
+    # See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
+    x_new = C['x'][:] * sat_h
+    y_new = C['y'][:] * sat_h
+    #x = C['x'][:] 
+    #y = C['y'][:] 
+    rad = C['Rad']
+    #Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
+    # Create a pyproj geostationary map object
+    
+    p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+  
+
+    xmin_proj, ymax_proj = p(minLongitde, maxLatitide)
+    xmax_proj, ymin_proj = p(maxLongitude, minLatitude)
+    
+    print()
+    xmin_proj =min([xmin_proj,xmax_proj])
+    xmax_proj =max([xmin_proj,xmax_proj])
+    ymin_proj =min([ymin_proj,ymax_proj])
+    ymax_proj =max([ymin_proj,ymax_proj])
+    
+    print(xmin_proj)
+    print(xmax_proj)
+    print(ymin_proj)
+    print(ymax_proj)
+    
+    
+    xmin_index = (np.abs(x_new.data-xmin_proj)).argmin()
+    xmax_index = (np.abs(x_new.data-xmax_proj)).argmin()
+    ymin_index = (np.abs(y_new.data-ymin_proj)).argmin()
+    ymax_index = (np.abs(y_new.data-ymax_proj)).argmin()
+     
+    print(xmin_index)
+    print(xmax_index)
+    print(ymin_index)
+    print(ymax_index)
+
+    
+    x_new = x_new[xmin_index:xmax_index]
+    y_new = y_new[ymax_index:ymin_index]
+    print(x_new)
+    print(y_new)
+    print(x_new.coords['x'])
+    x_new.coords['x'] = x_new.coords['x']* sat_h
+    y_new.coords['y'] = y_new.coords['y']* sat_h
+    print(x_new)
+    rad = rad[ymax_index:ymin_index,xmin_index:xmax_index]
+    rad.coords['x'] =rad.coords['x']*sat_h
+    rad.coords['y'] =rad.coords['y']*sat_h
+    print(rad)
+    #rad = rad[xmin_index.data:xmax_index.data,ymax_index.data:ymin_index.data]
     # We'll use the `CMI_C02` variable as a 'hook' to get the CF metadata.
     dat = C.metpy.parse_cf('Rad')
     
@@ -458,10 +623,13 @@ def plotGOESData(FILE, extent):
     
     x = dat.metpy.x
     y = dat.metpy.y
+    print(x)
+    print(y)
     #long = dat.metpy.longitude
     #lat = dat.metpy.latitude
     #print(long)
-    
+    x = x_new
+    y = y_new
     
     fig = plt.figure(figsize=(15, 12))
     # Generate an Cartopy projection
@@ -470,7 +638,7 @@ def plotGOESData(FILE, extent):
     ax.set_extent(extent, crs=ccrs.PlateCarree())
     
     
-    ax.imshow(RGB, origin='upper',
+    ax.imshow(rad, origin='upper',
               extent=(x.min(), x.max(), y.min(), y.max()),
               transform=geos,
               interpolation='none')
@@ -482,15 +650,60 @@ def plotGOESData(FILE, extent):
     #plt.title('{}'.format(scan_start.strftime('%d %B %Y %H:%M UTC ')), loc='right')
     
     plt.show()
+    
 plotGOESData('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc',[-90, -30, -30, 20])
 #%%
+import xarray
+from pyproj import Proj
 import numpy as np
+global lons,lats
 
+maxLongitude = -51
+minLongitde = -70
+maxLatitide = 2.5
+minLatitude = -11
 
-lon = np.linspace(-80, 80, 25)
-lat = np.linspace(30, 70, 25)
-lon2d, lat2d = np.meshgrid(lon, lat)
+FILE = 'data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc'
 
-data = np.cos(np.deg2rad(lat2d) * 4) + np.sin(np.deg2rad(lon2d) * 4)
-print(data.shape)
-print(lon2d)
+C = xarray.open_dataset(FILE)
+
+# Satellite height
+sat_h = C['goes_imager_projection'].perspective_point_height
+
+# Satellite longitude
+sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+
+# Satellite sweep
+sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+
+# The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
+# See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
+x = C['x'][:] * sat_h
+y = C['y'][:] * sat_h
+rad = C['Rad'].data
+print(rad.shape)
+#Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
+# Create a pyproj geostationary map object
+p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+
+xmin_proj, ymax_proj = p(minLongitde, maxLatitide)
+xmax_proj, ymin_proj = p(maxLongitude, minLatitude)
+
+xmin_index = (np.abs(x-xmin_proj)).argmin()
+xmax_index = (np.abs(x-xmax_proj)).argmin()
+ymin_index = (np.abs(y-ymin_proj)).argmin()
+ymax_index = (np.abs(y-ymax_proj)).argmin()
+print(ymin_index.data)
+print(ymax_index.data)
+x = x[xmin_index.data:xmax_index.data]
+y = y[ymax_index.data:ymin_index.data]
+#print(xmin_proj)
+#print(x[min_distance.data])
+#print(y)
+# Perform cartographic transformation. That is, convert image projection coordinates (x and y)
+# to latitude and longitude values.
+XX, YY = np.meshgrid(x, y)
+print("traonsfrming data")
+lons, lats = p(XX, YY, inverse=True)
+print("transformation done")
+#print(x_proj)
