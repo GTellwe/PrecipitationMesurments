@@ -23,7 +23,7 @@ import numpy as np
 
 # Constants
 rad = []
-receptiveField = 28
+receptiveField = 6
 maxLongitude = -51
 minLongitde = -70
 maxLatitide = 2.5
@@ -60,8 +60,11 @@ def getClosestFile(DATE, CHANNEL):
     files_for_hour = list(map(lambda x : x.name, getFilesForHour(DATE)))
    
     files_for_hour = [file for file in files_for_hour if file.split('_')[1] == CHANNEL ]
+    if len(files_for_hour) == 0:
+        print(DATE)
+    
     date_diff = np.zeros((len(files_for_hour),1))
-    #print(files_for_hour)
+    
     for i in range(len(files_for_hour)):
         
         middleTime = getMiddleTime(files_for_hour[i])
@@ -73,6 +76,7 @@ def getClosestFile(DATE, CHANNEL):
     #print(np.argmin(date_diff[:,0]))
     #print(files_for_hour[1])
     #print('%s' % (files_for_hour[np.argmin(date_diff[:,0])]))
+    
     return '%s' % (files_for_hour[np.argmin(date_diff[:,0])]), getMiddleTime(files_for_hour[np.argmin(date_diff[:,0])]) 
 
 def downloadFile(FILE):
@@ -254,15 +258,18 @@ def getGEOData(GPM_data, dataSize):
  
    
     middleTime = datetime(1980,1,1)
+    
     for i in range(len(GPM_data[:dataSize,3])):
         currentTime = convertTimeStampToDatetime(GPM_data[i,3])
+        #print(GPM_data[i,3])
+        #print(currentTime)
         if(np.abs((currentTime-middleTime).total_seconds()) > 600):
             filePath, middleTime = getClosestFile(currentTime, 'ABI-L1b-RadF-M6C13')
         
         if filePath != previousFileName:
             newFileIndexes.append(i)
             filePaths.append(filePath)
-            previousFileName = filePaths[i]
+            previousFileName = filePath
         
     end_time = time.time()
     print("time for getting file paths %s" % (end_time-start_time))
@@ -273,7 +280,7 @@ def getGEOData(GPM_data, dataSize):
     for i in range(len(newFileIndexes)):
         
         filePATH = filePaths[i]
-        FILE = 'data/'+filePaths[newFileIndexes[i]].split('/')[-1]
+        FILE = 'data/'+filePaths[i].split('/')[-1]
    
         downloadFile(filePATH)
         lons,lats,C,rad, x_data, y_data = extractGeoData(filePATH)
@@ -357,7 +364,7 @@ def downloadGPMFile(FILENAME, DATE):
     except:
        print('requests.get() returned an error code '+str(result.status_code))
        
-def getGPMData(DATE, maxDataSize):
+def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass):
     
     '''
         retruns GPM data for the day provided. The data is in form of an array
@@ -369,48 +376,66 @@ def getGPMData(DATE, maxDataSize):
     
     import h5py
     import numpy as np
+    from datetime import datetime, timedelta
     data = np.zeros((maxDataSize,4))
     
     # get the files for the specific day
-    files = getGPMFilesForSpecificDay(DATE)
     
+    DATE = start_DATE
     index = 0
-    
-    for FILENAME in files:
-        # download the gpm data
-        downloadGPMFile(FILENAME,DATE)
+    while index < maxDataSize:
         
-        # read the data
-        path =  'data/'+FILENAME
-        f = h5py.File(path, 'r')
-        precepTotRate = f['NS']['surfPrecipTotRate'][:].flatten()
-        longitude = f['NS']['Longitude'][:].flatten()
-        latitude = f['NS']['Latitude'][:].flatten()
-        time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
-        print(FILENAME)
-        print(convertTimeStampToDatetime(time[0]))
-        print(convertTimeStampToDatetime(time[-1]))
-        # remove all the missing values
-        indexes = np.where(np.abs(precepTotRate) < 200)[0]
-        precepTotRate = precepTotRate[indexes]
-        longitude = longitude[indexes]
-        latitude = latitude[indexes]
-        time = time[indexes]
+        files = getGPMFilesForSpecificDay(DATE)
         
-        index1 = min(maxDataSize,index+len(precepTotRate))
+        for FILENAME in files:
+            # download the gpm data
+            downloadGPMFile(FILENAME,DATE)
+            
+            # read the data
+            try:
+                path =  'data/'+FILENAME
+                f = h5py.File(path, 'r')
+                precepTotRate = f['NS']['surfPrecipTotRate'][:].flatten()
+                longitude = f['NS']['Longitude'][:].flatten()
+                latitude = f['NS']['Latitude'][:].flatten()
+                time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
+            except:
+                continue
+                #print(FILENAME)
+                #    print(convertTimeStampToDatetime(time[0]))
+                #print(convertTimeStampToDatetime(time[-1]))
+                # remove all the missing values
+            indexes = np.where(np.abs(precepTotRate) < 200)[0]
+            precepTotRate = precepTotRate[indexes]
+            longitude = longitude[indexes]
+            latitude = latitude[indexes]
+            time = time[indexes]
+            
+            
+            index1 = min(maxDataSize,index+len(precepTotRate),index+data_per_GPM_pass)
+            '''
+            data[index:index1,0] = precepTotRate[:index1-index]
+            data[index:index1,1] = longitude[:index1-(index+len(precepTotRate))]
+            data[index:index1,2] = latitude[:index1-(index+len(precepTotRate))]
+            data[index:index1,3] = time[:index1-(index+len(precepTotRate))]
+            '''
+            data[index:index1,0] = precepTotRate[:index1-index]
+            data[index:index1,1] = longitude[:index1-index]
+            data[index:index1,2] = latitude[:index1-index]
+            data[index:index1,3] = time[:index1-index]
+                        
+            
+            #index = index + len(precepTotRate)
+            index = index1
+            print(index)
+            if index > maxDataSize:
+                break
+            
+           
+                
         
-        data[index:index1,0] = precepTotRate[:index1-(index+len(precepTotRate))]
-        data[index:index1,1] = longitude[:index1-(index+len(precepTotRate))]
-        data[index:index1,2] = latitude[:index1-(index+len(precepTotRate))]
-        data[index:index1,3] = time[:index1-(index+len(precepTotRate))]
-        
-        
-        
-        index = index + len(precepTotRate)
-        
-        if index > maxDataSize:
-            break
-        
+        DATE += timedelta(days=1)
+        print(DATE)
       
     return data
    
@@ -419,12 +444,12 @@ def convertTimeStampToDatetime(timestamp):
     return datetime(1980, 1, 6) + timedelta(seconds=timestamp - (35 - 19))
     
 
-def getTrainingData(dataSize):
+def getTrainingData(dataSize, nmb_GPM_pass):
     
     import numpy as np
     import datetime
     import time
-    receptiveField = 28
+    #receptiveField = 28
 
     '''
     returns a set that conisit of radiance data for an area around every pixel
@@ -445,7 +470,8 @@ def getTrainingData(dataSize):
             3: rain amount
     '''
     start_time = time.time()
-    GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize)
+    GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize,nmb_GPM_pass)
+    print(np.where(GPM_data[:,3] == 0))
     times[:,0] = GPM_data[:,3]
     end_time = time.time()
     print("time for collecting GPM Data %s" % (end_time-start_time))
@@ -453,14 +479,11 @@ def getTrainingData(dataSize):
     next step is to pair the label with the geostattionary data.
     '''
     start_time = time.time()
-    '''for i in range(dataSize):
-        #print(i)
-        xData[i,:,:], times[i,1] = getGEOData(GPM_data[i,1], GPM_data[i,2],convertTimeStampToDatetime(GPM_data[i,3]))
-        yData[i] = GPM_data[i,0]
-    '''
+    
     xData[:dataSize,:,:], times[:dataSize,1] = getGEOData(GPM_data, dataSize)
     yData = GPM_data[:dataSize,0]
     end_time = time.time()
+    
     print("time for collecting GEO Data %s" % (end_time-start_time))
     return xData, yData, times
 
@@ -468,7 +491,7 @@ def getTrainingData(dataSize):
 def plotTrainingData(xData,yData, times, nmbImages):
     import matplotlib.pyplot as plt
     import numpy as np
-    for i in range(nmbImages):
+    for i in range(5800,5800+nmbImages):
         
         fig = plt.figure()
         fig.suptitle('timediff %s, rainfall %s' % (np.abs(times[i,0]-times[i,1]), yData[i]), fontsize=20)
@@ -477,9 +500,12 @@ def plotTrainingData(xData,yData, times, nmbImages):
 
 
 #%%
-xData, yData , times = getTrainingData(10000)
+xData, yData , times = getTrainingData(10000,1000)
 #%%
-plotTrainingData(xData,yData,times, 100)
+plotTrainingData(xData,yData,times, 20)
+#%%
+import matplotlib.pyplot as plt
+plt.plot(yData[5000:7000])
 #%%
 print(xData.shape)
 #%%
@@ -487,29 +513,44 @@ from typhon.retrieval import qrnn
 import numpy as np
 # reshape data for the QRNN
 newXData = np.reshape(xData,(xData.shape[0],xData.shape[1]*xData.shape[2]))
-print(newXData.shape)
-print(xData.shape)
-print(yData.shape)
-#%%
-quantiles = [0.1,0,2.0,3,0.4,0.5,0.6,0.7,0.8,0.9,1]
-input_dim = newXData.shape[1]
-model = qrnn.QRNN(input_dim,quantiles)
 
-xTrain = newXData
-yTrain = yData
-print(xTrain)
+
+#%%
+quantiles = [0.7,0.8,0.9]
+input_dim = newXData.shape[1]
+model = qrnn.QRNN(input_dim,quantiles, depth = 10, activation = 'relu')
+
+newXData = newXData / newXData.max()
+xTrain = newXData[:8000,:]
+xTest = newXData[8000:,:]
+newYData = np.reshape(yData,(len(yData),1))
+yTrain = newYData[:8000]
+yTest = newYData[8000:]
+#print(xTrain)
 from sklearn import preprocessing
 import numpy as np
-xTrain = preprocessing.scale(xTrain)
+#xTrain = preprocessing.scale(xTrain)
+#from sklearn.utils import shuffle
+#xTrain,yTrain = shuffle(xTrain,yTrain, random_state=0)
 #xVal = newXData[80:,:]
 #yVal = np.reshape(yData[80:,0],(20,1))
- 
-print(xTrain)
+#xTrain = xTrain / xTrain.max()
+#print(xTrain)
 
-#model.fit(x_train = xTrain, y_train = yTrain,batch_size = 40,maximum_epochs = 50)
+model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 500)
+
+#%%
+prediction = model.predict(xTest)
 
 
-
+#%%
+import matplotlib.pyplot as plt
+print(prediction.shape)
+print(yTest.shape)
+print(yTrain.shape)
+#plt.plot(yTest)
+plt.plot(prediction[:,2])
+#plt.plot(prediction[:,0])
 #%%
 def plotGPMData(DATE, extent):
     import numpy as np
@@ -686,57 +727,78 @@ def plotGOESData(FILE, extent):
     
 plotGOESData('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc',[-90, -30, -30, 20])
 #%%
-import xarray
-from pyproj import Proj
+
+from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D
+from keras.models import Model
+from keras import backend as K
+
+input_img = Input(shape=(784,))
+
+encoded = Dense(128, activation='relu')(input_img)
+encoded = Dense(64, activation='relu')(encoded)
+encoded = Dense(32, activation='relu')(encoded)
+
+decoded = Dense(64, activation='relu')(encoded)
+decoded = Dense(128, activation='relu')(decoded)
+decoded = Dense(784, activation='sigmoid')(decoded)
+
+autoencoder = Model(input_img, decoded)
+autoencoder.compile(optimizer='adadelta', loss='binary_crossentropy')
+
+#%%
+
 import numpy as np
-global lons,lats
+# reshape data for the QRNN
+#%%
+from keras.datasets import mnist
+import numpy as np
+(x_train, _), (x_test, _) = mnist.load_data()
 
-maxLongitude = -51
-minLongitde = -70
-maxLatitide = 2.5
-minLatitude = -11
+x_train = x_train.astype('float32') / 255.
+x_test = x_test.astype('float32') / 255.
+x_train = x_train.reshape((len(x_train), np.prod(x_train.shape[1:])))
+x_test = x_test.reshape((len(x_test), np.prod(x_test.shape[1:])))
+print (x_train.shape)
+print (x_test.shape)  # adapt this if using `channels_first` image data format
+#%%
+print(x_test.shape)
+#%%
+#print(xTrain)
+from sklearn.preprocessing import MinMaxScaler
+import numpy as np
 
-FILE = 'data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc'
 
-C = xarray.open_dataset(FILE)
+x_train = xData/xData.max()
+x_train = np.reshape(x_train, (len(x_train), 28*28))
 
-# Satellite height
-sat_h = C['goes_imager_projection'].perspective_point_height
+print(x_train.shape)
+#%%
+autoencoder = Model(input_img, decoded)
+autoencoder.compile(optimizer='adadelta', loss='binary_crossentropy')
 
-# Satellite longitude
-sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+autoencoder.fit(x_train, x_train,
+                epochs=1000,
+                batch_size=256,
+                shuffle=True)
+#%%
+decoded_imgs = autoencoder.predict(x_train)
+import matplotlib.pyplot as plt
 
-# Satellite sweep
-sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+n = 10  # how many digits we will display
+plt.figure(figsize=(20, 4))
+for i in range(n):
+    # display original
+    ax = plt.subplot(2, n, i + 1)
+    plt.imshow(x_train[i].reshape(28, 28))
+    plt.gray()
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
 
-# The projection x and y coordinates equals the scanning angle (in radians) multiplied by the satellite height
-# See details here: https://proj4.org/operations/projections/geos.html?highlight=geostationary
-x = C['x'][:] * sat_h
-y = C['y'][:] * sat_h
-rad = C['Rad'].data
-print(rad.shape)
-#Dataset('data/OR_ABI-L1b-RadC-M6C01_G16_s20200160001163_e20200160003536_c20200160004010.nc','r')['nominal_satellite_subpoint_lat'][:]
-# Create a pyproj geostationary map object
-p = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
-
-xmin_proj, ymax_proj = p(minLongitde, maxLatitide)
-xmax_proj, ymin_proj = p(maxLongitude, minLatitude)
-
-xmin_index = (np.abs(x-xmin_proj)).argmin()
-xmax_index = (np.abs(x-xmax_proj)).argmin()
-ymin_index = (np.abs(y-ymin_proj)).argmin()
-ymax_index = (np.abs(y-ymax_proj)).argmin()
-print(ymin_index.data)
-print(ymax_index.data)
-x = x[xmin_index.data:xmax_index.data]
-y = y[ymax_index.data:ymin_index.data]
-#print(xmin_proj)
-#print(x[min_distance.data])
-#print(y)
-# Perform cartographic transformation. That is, convert image projection coordinates (x and y)
-# to latitude and longitude values.
-XX, YY = np.meshgrid(x, y)
-print("traonsfrming data")
-lons, lats = p(XX, YY, inverse=True)
-print("transformation done")
-#print(x_proj)
+    # display reconstruction
+    ax = plt.subplot(2, n, i + 1 + n)
+    plt.imshow(decoded_imgs[i].reshape(28, 28))
+    plt.gray()
+    ax.get_xaxis().set_visible(False)
+    ax.get_yaxis().set_visible(False)
+plt.show()
+     
