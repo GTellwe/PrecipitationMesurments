@@ -73,7 +73,7 @@ def getClosestFile(DATE, CHANNEL):
     #print(np.argmin(date_diff[:,0]))
     #print(files_for_hour[1])
     #print('%s' % (files_for_hour[np.argmin(date_diff[:,0])]))
-    return '%s' % (files_for_hour[np.argmin(date_diff[:,0])]) 
+    return '%s' % (files_for_hour[np.argmin(date_diff[:,0])]), getMiddleTime(files_for_hour[np.argmin(date_diff[:,0])]) 
 
 def downloadFile(FILE):
     '''
@@ -96,10 +96,11 @@ def downloadFile(FILE):
     blob = bucket.blob(FILE)
     blob.download_to_filename('data/'+FILE.split('/')[-1])
     
-def extractGeoData(filePATH, oldFilePath):
+def extractGeoData(filePATH):
     import xarray
     from pyproj import Proj
     import numpy as np
+    '''
     global lons,lats
     global rad
     global x_data
@@ -107,13 +108,12 @@ def extractGeoData(filePATH, oldFilePath):
     global sat_h
     global sat_lon
     global sat_sweep
-    
+    '''
     maxLongitude = -40
     minLongitde = -80
     maxLatitide = 8
     minLatitude = -20
-    if oldFilePath == filePATH:
-        return 
+    
     
     FILE = 'data/'+filePATH.split('/')[-1]
     
@@ -180,6 +180,7 @@ def extractGeoData(filePATH, oldFilePath):
     lons, lats = p(XX, YY, inverse=True)
     #print(lons)
     print("transformation done")
+    return lons,lats,C,rad, x_data, y_data
 '''    
 def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude):
     import numpy as np
@@ -220,19 +221,21 @@ def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude, sat_h, sat
   
     return y_index, x_index
     
-def getGEOData(longitude, latitude, TIME):
+def getGEOData(GPM_data, dataSize):
     from netCDF4 import Dataset
     import numpy as np
-    global oldFile
-    global rad
     import time
     from datetime import datetime
+    '''
+    global oldFile
+    global rad
+    
     global x_data
     global y_data
     global sat_h
     global sat_lon
     global sat_sweep
-    
+    '''
     
     '''
     returns the receptiveField by receptiveField pixel 10.8 radiance map for the geostationary 
@@ -240,35 +243,63 @@ def getGEOData(longitude, latitude, TIME):
     '''
 
     
-    if longitude < minLongitde or longitude > maxLongitude or latitude < minLatitude or latitude >maxLatitide:
-        return np.zeros((receptiveField,receptiveField))
+    #if longitude < minLongitde or longitude > maxLongitude or latitude < minLatitude or latitude >maxLatitide:
+    #    return np.zeros((receptiveField,receptiveField))
     
     # Download the data file
+    filePaths = []
+    newFileIndexes = []
+    previousFileName = ""
+    start_time = time.time()
+ 
    
-    filePATH  =getClosestFile(TIME, 'ABI-L1b-RadF-M6C13')
-    FILE = 'data/'+filePATH.split('/')[-1]
+    middleTime = datetime(1980,1,1)
+    for i in range(len(GPM_data[:dataSize,3])):
+        currentTime = convertTimeStampToDatetime(GPM_data[i,3])
+        if(np.abs((currentTime-middleTime).total_seconds()) > 600):
+            filePath, middleTime = getClosestFile(currentTime, 'ABI-L1b-RadF-M6C13')
+        
+        if filePath != previousFileName:
+            newFileIndexes.append(i)
+            filePaths.append(filePath)
+            previousFileName = filePaths[i]
+        
+    end_time = time.time()
+    print("time for getting file paths %s" % (end_time-start_time))
+    # iterate through all unique file names
+    xData = np.zeros((dataSize,receptiveField,receptiveField))
+    times = np.zeros((dataSize,1))
     
+    for i in range(len(newFileIndexes)):
+        
+        filePATH = filePaths[i]
+        FILE = 'data/'+filePaths[newFileIndexes[i]].split('/')[-1]
    
-    downloadFile(filePATH)
-   
-   
-    extractGeoData(filePATH, oldFile)
-   
-   
-    
-    
-    oldFile = filePATH
-    
-  
-    xIndex, yIndex = getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude, sat_h, sat_lon, sat_sweep, x_data,y_data)
-   
-
+        downloadFile(filePATH)
+        lons,lats,C,rad, x_data, y_data = extractGeoData(filePATH)
+        sat_h = C['goes_imager_projection'].perspective_point_height
+        
+        # Satellite longitude
+        sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+        
+        # Satellite sweep
+        sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+       
+        if i == len(newFileIndexes)-1:
+            endIndex = dataSize
+        else:
+            endIndex = newFileIndexes[i+1]
+            
+        for j in range(newFileIndexes[i],endIndex):
+            xIndex, yIndex = getIndexOfGeoDataMatricFromLongitudeLatitude(GPM_data[j,1], GPM_data[j,2], sat_h, sat_lon, sat_sweep, x_data,y_data)
+            xData[j,:,:], times[j,0] = rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
+        
     
     #print(xIndex)
     #print(yIndex)
     #return Dataset(FILE,'r')['Rad'][xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
-    return rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
-        
+    #return rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
+    return xData, np.reshape(times,(len(times)))   
 def getGPMFilesForSpecificDay(DATE):
     '''
         returning a list of file name for that spcific date
@@ -422,11 +453,13 @@ def getTrainingData(dataSize):
     next step is to pair the label with the geostattionary data.
     '''
     start_time = time.time()
-    for i in range(dataSize):
+    '''for i in range(dataSize):
         #print(i)
         xData[i,:,:], times[i,1] = getGEOData(GPM_data[i,1], GPM_data[i,2],convertTimeStampToDatetime(GPM_data[i,3]))
         yData[i] = GPM_data[i,0]
-
+    '''
+    xData[:dataSize,:,:], times[:dataSize,1] = getGEOData(GPM_data, dataSize)
+    yData = GPM_data[:dataSize,0]
     end_time = time.time()
     print("time for collecting GEO Data %s" % (end_time-start_time))
     return xData, yData, times
@@ -443,8 +476,8 @@ def plotTrainingData(xData,yData, times, nmbImages):
         #print(yData[i])
 
 
-
-xData, yData , times = getTrainingData(100)
+#%%
+xData, yData , times = getTrainingData(10000)
 #%%
 plotTrainingData(xData,yData,times, 100)
 #%%
