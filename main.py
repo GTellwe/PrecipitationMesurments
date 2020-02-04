@@ -31,6 +31,7 @@ minLatitude = -11
 lons = []
 lats = []
 oldFile = ""
+
 def getFilesForHour(DATE):
     
     '''
@@ -59,9 +60,10 @@ def getClosestFile(DATE, CHANNEL):
     '''
     files_for_hour = list(map(lambda x : x.name, getFilesForHour(DATE)))
    
-    files_for_hour = [file for file in files_for_hour if file.split('_')[1] == CHANNEL ]
+    files_for_hour = [file for file in files_for_hour if file.split('_')[1][-3:] == CHANNEL ]
     if len(files_for_hour) == 0:
-        print(DATE)
+        print("could npt get closest file"+str(DATE))
+     
     
     date_diff = np.zeros((len(files_for_hour),1))
     
@@ -264,8 +266,9 @@ def getGEOData(GPM_data, dataSize):
         #print(GPM_data[i,3])
         #print(currentTime)
         if(np.abs((currentTime-middleTime).total_seconds()) > 600):
-            filePath, middleTime = getClosestFile(currentTime, 'ABI-L1b-RadF-M6C13')
-        
+            
+            filePath, middleTime = getClosestFile(currentTime, 'C13')
+           
         if filePath != previousFileName:
             newFileIndexes.append(i)
             filePaths.append(filePath)
@@ -377,6 +380,8 @@ def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass):
     import h5py
     import numpy as np
     from datetime import datetime, timedelta
+    import random
+    days_missing_in_GEO = [str(datetime(2017,8,3))]
     data = np.zeros((maxDataSize,4))
     
     # get the files for the specific day
@@ -386,6 +391,9 @@ def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass):
     while index < maxDataSize:
         
         files = getGPMFilesForSpecificDay(DATE)
+        if str(DATE) in days_missing_in_GEO:
+            DATE += timedelta(days=1)
+            continue
         
         for FILENAME in files:
             # download the gpm data
@@ -413,17 +421,27 @@ def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass):
             
             
             index1 = min(maxDataSize,index+len(precepTotRate),index+data_per_GPM_pass)
+            # select random data
+            
+            indexes = random.sample(range(0, len(precepTotRate)), index1-index)
+            
             '''
             data[index:index1,0] = precepTotRate[:index1-index]
             data[index:index1,1] = longitude[:index1-(index+len(precepTotRate))]
             data[index:index1,2] = latitude[:index1-(index+len(precepTotRate))]
             data[index:index1,3] = time[:index1-(index+len(precepTotRate))]
-            '''
+            
             data[index:index1,0] = precepTotRate[:index1-index]
             data[index:index1,1] = longitude[:index1-index]
             data[index:index1,2] = latitude[:index1-index]
             data[index:index1,3] = time[:index1-index]
-                        
+            '''
+            
+            data[index:index1,0] = precepTotRate[indexes]
+            data[index:index1,1] = longitude[indexes]
+            data[index:index1,2] = latitude[indexes]
+            data[index:index1,3] = time[indexes]
+            
             
             #index = index + len(precepTotRate)
             index = index1
@@ -470,7 +488,7 @@ def getTrainingData(dataSize, nmb_GPM_pass):
             3: rain amount
     '''
     start_time = time.time()
-    GPM_data = getGPMData(datetime.datetime(2020,1,26),dataSize,nmb_GPM_pass)
+    GPM_data = getGPMData(datetime.datetime(2017,8,2),dataSize,nmb_GPM_pass)
     print(np.where(GPM_data[:,3] == 0))
     times[:,0] = GPM_data[:,3]
     end_time = time.time()
@@ -499,8 +517,8 @@ def plotTrainingData(xData,yData, times, nmbImages):
         #print(yData[i])
 
 
-#%%
-xData, yData , times = getTrainingData(10000,1000)
+
+xData, yData , times = getTrainingData(50000,1000)
 #%%
 plotTrainingData(xData,yData,times, 20)
 #%%
@@ -516,16 +534,17 @@ newXData = np.reshape(xData,(xData.shape[0],xData.shape[1]*xData.shape[2]))
 
 
 #%%
-quantiles = [0.7,0.8,0.9]
+quantiles = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
 input_dim = newXData.shape[1]
 model = qrnn.QRNN(input_dim,quantiles, depth = 10, activation = 'relu')
 
 newXData = newXData / newXData.max()
-xTrain = newXData[:8000,:]
-xTest = newXData[8000:,:]
-newYData = np.reshape(yData,(len(yData),1))
-yTrain = newYData[:8000]
-yTest = newYData[8000:]
+
+xTrain = newXData[:40000,:]
+xTest = newXData[40000:,:]
+newYData = np.reshape(yData,(len(yData),1))/yData.max()
+yTrain = newYData[:40000]
+yTest = newYData[40000:]
 #print(xTrain)
 from sklearn import preprocessing
 import numpy as np
@@ -537,7 +556,7 @@ import numpy as np
 #xTrain = xTrain / xTrain.max()
 #print(xTrain)
 
-model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 500)
+model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 100)
 
 #%%
 prediction = model.predict(xTest)
@@ -548,9 +567,62 @@ import matplotlib.pyplot as plt
 print(prediction.shape)
 print(yTest.shape)
 print(yTrain.shape)
+print(xTest.shape)
 #plt.plot(yTest)
-plt.plot(prediction[:,2])
+plt.plot(prediction[:,8])
 #plt.plot(prediction[:,0])
+
+#%%
+#def generateRainfallImage(model,data_file_path):
+data_file_path = 'data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc'
+im_width = 1000
+downloadFile(data_file_path)
+lons,lats,C,rad, x_data, y_data = extractGeoData(data_file_path)
+rad = rad.data
+
+rad = rad[:im_width,:im_width]
+predictions = np.zeros((rad.shape[0],rad.shape[1]))
+test = np.zeros((rad.shape[0]*rad.shape[1],6,6))
+max_val = rad.max()
+print(rad.shape)
+
+# generate rad images to be evaluated
+index = 0
+for i in range(rad.shape[0]):
+    #print(i)
+    for j in range(rad.shape[1]):
+        #print(np.reshape(rad[i-3:i+3,j-3:j+3].data,(1,36))/max_val)
+        if i<3 or i >rad.shape[0]-3 or j<3 or j >rad.shape[1]-3 :
+            test[index,:,:] = rad[:6,:6]
+        else:
+            test[index,:,:] = rad[i-3:i+3,j-3:j+3]
+        #predictions[i,j] = model.predict(np.reshape(rad[i-3:i+3,j-3:j+3],(1,36))/max_val)[0,4]
+        index = index +1
+        
+        
+test2 = np.reshape(test,(rad.shape[0]*rad.shape[1],36))
+pred = model.predict(test2/max_val)
+'''
+img = pred[:,4].reshape(200,200)
+fig, ax = plt.subplots()
+im = ax.imshow(img,clim=(0.0, ))
+fig.colorbar(im, ax=ax)
+    #print(pred)
+    # predict the rad images
+    '''
+    #predictions = model.predict(np.reshape(rad_image_data,(width*width,36))/rad_image_data.max())
+    
+    # plot the results
+    #plt.imshow(np.reshape(predictions[:,4],(width,width)))
+   
+#%%
+fig, ax = plt.subplots()
+img = pred[:,4].reshape(1000,1000)
+img_in =  np.ma.masked_less(img, 0.0001)
+im = ax.imshow(img_in)
+fig.colorbar(im, ax=ax)
+#generateRainfallImage(model,'data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc')    
+
 #%%
 def plotGPMData(DATE, extent):
     import numpy as np
@@ -613,6 +685,7 @@ def plotGOESData(FILE, extent):
     import metpy  # noqa: F401
     import numpy as np
     import xarray
+    from pyproj import Proj
     '''
     maxLongitude = -51
     minLongitde = -70
@@ -725,7 +798,8 @@ def plotGOESData(FILE, extent):
     
     plt.show()
     
-plotGOESData('data/OR_ABI-L1b-RadF-M6C13_G16_s20200260150156_e20200260159476_c20200260159547.nc',[-90, -30, -30, 20])
+    
+plotGOESData('data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc',[-80, -40, -20, 8])
 #%%
 
 from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D
@@ -802,3 +876,6 @@ for i in range(n):
     ax.get_yaxis().set_visible(False)
 plt.show()
      
+#%%
+test = 'ABI-L1b-RadF-M3C13'
+print(test[-3:])
