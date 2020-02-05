@@ -518,33 +518,86 @@ def plotTrainingData(xData,yData, times, nmbImages):
 
 
 
-xData, yData , times = getTrainingData(50000,1000)
+xData, yData , times = getTrainingData(50000,100)
+#%% save data
+import numpy as np
+np.save('xData_50k_2017-08_02-2017_08_26.npy', xData)   
+np.save('yData_50k_2017-08_02-2017_08_26.npy', yData)   
+np.save('times_50k_2017-08_02-2017_08_26.npy', times)   
+
+#%% load data
+xData = np.load('xData_50k_2017-08_02-2017_08_26.npy')
+yData = np.load('yData_50k_2017-08_02-2017_08_26.npy')
+times = np.load('times_50k_2017-08_02-2017_08_26.npy')
+
+
+#%% plot time differences
+import matplotlib.pyplot as plt
+import numpy as np
+plt.plot(np.abs(times[:,0]-times[:,1]))
+
 #%%
 plotTrainingData(xData,yData,times, 20)
+
 #%%
 import matplotlib.pyplot as plt
 plt.plot(yData[5000:7000])
+
 #%%
 print(xData.shape)
 #%%
 from typhon.retrieval import qrnn 
 import numpy as np
+from sklearn.preprocessing import StandardScaler
+import random
+scaler1 = StandardScaler()
+
 # reshape data for the QRNN
 newXData = np.reshape(xData,(xData.shape[0],xData.shape[1]*xData.shape[2]))
 
+newYData = np.reshape(yData,(len(yData),1))
+indexes_of_zeros = np.where(newYData[:,0] == 0)
+indexes_of_non_zeros = np.where(newYData[:,0] > 0)
+print(len(indexes_of_zeros[0]))
+indexes_zeros = random.sample(range(0, len(indexes_of_zeros[0])),len(indexes_of_non_zeros[0]))
+tmpX = np.zeros((len(indexes_of_non_zeros[0])+len(indexes_of_non_zeros[0]),xData.shape[1]*xData.shape[2]))
+tmpY = np.zeros((len(indexes_of_non_zeros[0])+len(indexes_of_non_zeros[0]),1))
 
+tmpY[:len(indexes_of_non_zeros[0]),0] =  newYData[indexes_of_non_zeros,0]
+tmpY[len(indexes_of_non_zeros[0]):,0] =  newYData[indexes_zeros,0]
+
+tmpX[:len(indexes_of_non_zeros[0]),:] =  newXData[indexes_of_non_zeros,:]
+tmpX[len(indexes_of_non_zeros[0]):,:] =  newXData[indexes_zeros,:]
+
+newOrder = random.sample(range(0,tmpX.shape[0]),tmpX.shape[0])
+
+newXData = tmpX[newOrder,:]
+newYData = tmpY[newOrder,:]
+print(newXData)
 #%%
+'''
+tmp = np.zeros((xData.shape[0],xData.shape[1]*xData.shape[2]+1))
+tmp[:,:xData.shape[1]*xData.shape[2]] = newXData
+tmp[:,-1] = times[:,0]-times[:,1]
+newXData = tmp
+'''
+scaler1.fit(newXData)
+newXData = scaler1.transform(newXData)
+newYData = newYData/newYData.max()
+print(newXData)
+#%%
+print(newYData.shape)
+#%%#%%
 quantiles = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
 input_dim = newXData.shape[1]
-model = qrnn.QRNN(input_dim,quantiles, depth = 10, activation = 'relu')
+model = qrnn.QRNN(input_dim,quantiles, depth = 10, activation = 'sigmoid')
 
-newXData = newXData / newXData.max()
 
-xTrain = newXData[:40000,:]
-xTest = newXData[40000:,:]
-newYData = np.reshape(yData,(len(yData),1))/yData.max()
-yTrain = newYData[:40000]
-yTest = newYData[40000:]
+xTrain = newXData[:2000,:]
+xTest = newXData[2000:,:]
+
+yTrain = newYData[:2000]
+yTest = newYData[2000:]
 #print(xTrain)
 from sklearn import preprocessing
 import numpy as np
@@ -556,72 +609,81 @@ import numpy as np
 #xTrain = xTrain / xTrain.max()
 #print(xTrain)
 
-model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 100)
+model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 500)
+
+#%%save model
+model.save('model.h5')
 
 #%%
 prediction = model.predict(xTest)
 
-
+#%%
+print(np.mean(yTrain))
 #%%
 import matplotlib.pyplot as plt
-print(prediction.shape)
-print(yTest.shape)
-print(yTrain.shape)
-print(xTest.shape)
+print(np.mean(prediction[:,0]))
+print(np.mean(yTest))
 #plt.plot(yTest)
-plt.plot(prediction[:,8])
+plt.plot(prediction[:,6])
 #plt.plot(prediction[:,0])
+#%% generate QQ plot
+def generateQQPLot(quantiles, yTest, prediction):
+    q = np.zeros((len(quantiles),1))
+    for i in range(len(quantiles)):
+        nmb = 0
+        for j in range(yTest.shape[0]):
+            if prediction[j,i] > yTest[j,0]:
+                nmb +=1
+        
+        
+        q[i,0] = nmb / yTest.shape[0]
+        
+    import matplotlib.pyplot as plt    
+    plt.plot(quantiles,q[:,0])
+
+#print(np.where(prediction[:,0] > yTest[:,0])[0].shape)
+#for i in range(quantiles):
+generateQQPLot(quantiles, yTest, prediction)
 
 #%%
-#def generateRainfallImage(model,data_file_path):
-data_file_path = 'data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc'
-im_width = 1000
-downloadFile(data_file_path)
-lons,lats,C,rad, x_data, y_data = extractGeoData(data_file_path)
-rad = rad.data
-
-rad = rad[:im_width,:im_width]
-predictions = np.zeros((rad.shape[0],rad.shape[1]))
-test = np.zeros((rad.shape[0]*rad.shape[1],6,6))
-max_val = rad.max()
-print(rad.shape)
-
-# generate rad images to be evaluated
-index = 0
-for i in range(rad.shape[0]):
-    #print(i)
-    for j in range(rad.shape[1]):
-        #print(np.reshape(rad[i-3:i+3,j-3:j+3].data,(1,36))/max_val)
-        if i<3 or i >rad.shape[0]-3 or j<3 or j >rad.shape[1]-3 :
-            test[index,:,:] = rad[:6,:6]
-        else:
-            test[index,:,:] = rad[i-3:i+3,j-3:j+3]
-        #predictions[i,j] = model.predict(np.reshape(rad[i-3:i+3,j-3:j+3],(1,36))/max_val)[0,4]
-        index = index +1
-        
-        
-test2 = np.reshape(test,(rad.shape[0]*rad.shape[1],36))
-pred = model.predict(test2/max_val)
-'''
-img = pred[:,4].reshape(200,200)
-fig, ax = plt.subplots()
-im = ax.imshow(img,clim=(0.0, ))
-fig.colorbar(im, ax=ax)
-    #print(pred)
-    # predict the rad images
-    '''
-    #predictions = model.predict(np.reshape(rad_image_data,(width*width,36))/rad_image_data.max())
+def generateRainfallImage(model,data_file_path):
     
-    # plot the results
-    #plt.imshow(np.reshape(predictions[:,4],(width,width)))
+    im_width = 1000
+    downloadFile(data_file_path)
+    lons,lats,C,rad, x_data, y_data = extractGeoData(data_file_path)
+    rad = rad.data
+    
+    rad = rad[:im_width,:im_width]
+    predictions = np.zeros((rad.shape[0],rad.shape[1]))
+    test = np.zeros((rad.shape[0]*rad.shape[1],6,6))
+    max_val = rad.max()
+    print(rad.shape)
+    
+    # generate rad images to be evaluated
+    index = 0
+    for i in range(rad.shape[0]):
+        #print(i)
+        for j in range(rad.shape[1]):
+            #print(np.reshape(rad[i-3:i+3,j-3:j+3].data,(1,36))/max_val)
+            if i<3 or i >rad.shape[0]-3 or j<3 or j >rad.shape[1]-3 :
+                test[index,:,:] = rad[:6,:6]
+            else:
+                test[index,:,:] = rad[i-3:i+3,j-3:j+3]
+            #predictions[i,j] = model.predict(np.reshape(rad[i-3:i+3,j-3:j+3],(1,36))/max_val)[0,4]
+            index = index +1
+            
+            
+    test2 = np.reshape(test,(rad.shape[0]*rad.shape[1],36))
+    pred = model.predict(test2/max_val)
+    fig, ax = plt.subplots()
+    img = pred[:,4].reshape(im_width,im_width)
+    img_in =  np.ma.masked_less(img, 0.0001)
+    im = ax.imshow(img_in)
+    fig.colorbar(im, ax=ax)
    
-#%%
-fig, ax = plt.subplots()
-img = pred[:,4].reshape(1000,1000)
-img_in =  np.ma.masked_less(img, 0.0001)
-im = ax.imshow(img_in)
-fig.colorbar(im, ax=ax)
-#generateRainfallImage(model,'data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc')    
+
+
+generateRainfallImage(model,'data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc')    
 
 #%%
 def plotGPMData(DATE, extent):
