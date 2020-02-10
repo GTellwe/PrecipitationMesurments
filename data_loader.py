@@ -7,7 +7,7 @@ Created on Fri Feb  7 15:52:46 2020
 
 # Constants
 rad = []
-receptiveField = 28
+receptiveField = 14
 maxLongitude = -51
 minLongitde = -70
 maxLatitide = 2.5
@@ -180,7 +180,7 @@ def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude, sat_h, sat
   
     return y_index, x_index, np.sqrt((longitude-lons)*(longitude-lons)+(latitude-lats)*(latitude-lats))
     
-def getGEOData(GPM_data, dataSize):
+def getGEOData(GPM_data, dataSize, channel):
     from netCDF4 import Dataset
     import numpy as np
     import time
@@ -201,9 +201,10 @@ def getGEOData(GPM_data, dataSize):
     
     for i in range(len(GPM_data[:dataSize,3])):
         currentTime = convertTimeStampToDatetime(GPM_data[i,3])
-        if(np.abs((currentTime-middleTime).total_seconds()) > 600):
+        if(np.abs((currentTime-middleTime).total_seconds()) > 450):
             
-            filePath, middleTime = getClosestFile(currentTime, 'C13')
+            filePath, middleTime = getClosestFile(currentTime, channel)
+            
            
         if filePath != previousFileName:
             newFileIndexes.append(i)
@@ -448,9 +449,10 @@ def getTrainingData(dataSize, nmb_GPM_pass, rain_norain_division):
     in the given area together with its label
     '''
     
-    xData = np.zeros((dataSize,receptiveField,receptiveField))
-    times = np.zeros((dataSize,2))
+    xData = np.zeros((dataSize,2,receptiveField,receptiveField))
+    times = np.zeros((dataSize,3))
     yData = np.zeros((dataSize,1))
+    distance = np.zeros((dataSize,2))
     '''
         First step is to get the label data. To do this, we look at a specifi
         passing of the satelite over the area. We then extract the points
@@ -471,16 +473,17 @@ def getTrainingData(dataSize, nmb_GPM_pass, rain_norain_division):
     '''
     start_time = time.time()
     
-    xData[:dataSize,:,:], times[:dataSize,1], distance = getGEOData(GPM_data, dataSize)
+    xData[:dataSize,0,:,:], times[:dataSize,1], distance[:,0] = getGEOData(GPM_data, dataSize,'C13')
+    xData[:dataSize,1,:,:], times[:dataSize,2], distance[:,1] = getGEOData(GPM_data, dataSize,'C08')
     yData = GPM_data[:dataSize,0]
     end_time = time.time()
     
     print("time for collecting GEO Data %s" % (end_time-start_time))
     import numpy as np
-    np.save('trainingData/xDataS'+str(dataSize)+'_R28_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', xData)   
-    np.save('trainingData/yDataS'+str(dataSize)+'_R28_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', yData)   
-    np.save('trainingData/timesS'+str(dataSize)+'_R28_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', times)
-    np.save('trainingData/distanceS'+str(dataSize)+'_R28_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', distance)  
+    np.save('trainingData/xDataC8S'+str(dataSize)+'_R14_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', xData)   
+    np.save('trainingData/yDataC8S'+str(dataSize)+'_R14_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', yData)   
+    np.save('trainingData/timesC8S'+str(dataSize)+'_R14_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', times)
+    np.save('trainingData/distanceC8S'+str(dataSize)+'_R14_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', distance)  
     return xData, yData, times, distance
 
 
@@ -493,24 +496,32 @@ def plotTrainingData(xData,yData, times, nmbImages):
         fig.suptitle('timediff %s, rainfall %s' % (np.abs(times[i,0]-times[i,1]), yData[i]), fontsize=20)
         plt.imshow(xData[i,:,:])
         
+def extract_data_within_timewindow(xData, yData, times, distance):
+
+    indexes = np.where(np.abs(times[:,0]-times[:,1]) <200)
+    return xData[indexes[0],:,:] , yData[indexes[0]] , times[indexes[0],:], distance[indexes[0],:]
 
 def preprocessDataForTraining(xData, yData, times, distance):
+    from sklearn.preprocessing import StandardScaler
+    import numpy as np
     scaler1 = StandardScaler()
 
     # reshape data for the QRNN
     newXData = np.reshape(xData,(xData.shape[0],xData.shape[1]*xData.shape[2]))
     newYData = np.reshape(yData,(len(yData),1))
     
-    # comine the IR images and the distance and time difference
-    tmp = np.zeros((xData.shape[0],xData.shape[1]*xData.shape[2]+2))
-    tmp[:,:xData.shape[1]*xData.shape[2]] = newXData
-    tmp[:,-1] = times[:,0]-times[:,1]
-    tmp[:,-2] = distance[:,0]
-    newXData = tmp
-    
-    # scale the data with unit variance and and between 0 and 1 for the labels
     scaler1.fit(newXData)
     newXData = scaler1.transform(newXData)
     newYData = newYData/newYData.max()
+    
+    # comine the IR images and the distance and time difference
+    tmp = np.zeros((xData.shape[0],xData.shape[1]*xData.shape[2]+2))
+    tmp[:,:xData.shape[1]*xData.shape[2]] = newXData
+    tmp[:,-1] = (times[:,0]-times[:,1])/(times[:,0]-times[:,1]).max()
+    tmp[:,-2] = distance[:,0]/distance.max()
+    newXData = tmp
+    
+    # scale the data with unit variance and and between 0 and 1 for the labels
+    
     
     return newXData, newYData
