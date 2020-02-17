@@ -12,25 +12,118 @@ from data_loader import getTrainingData
 
 
 # get training data
-xData, yData , times, distance = getTrainingData(100000,100, 0.5)   
+xData, yData , times, distance = getTrainingData(300000,350, 0.5)   
 
+#%%
+print(xData.shape)
+import matplotlib.pyplot as plt
+entry = 23569
+plt.imshow(xData[entry,0,:,:])
+plt.show()
+plt.imshow(xData[entry,1,:,:])
+plt.show()
+plt.imshow(xData[entry,2,:,:])
+plt.show()
+print(times[entry,1]-times[entry,0])
+print(times[entry,2]-times[entry,0])
+print(times[entry,3]-times[entry,0])
 #%% load data
 import numpy as np
-xData =np.load('trainingData/xDataS100000_R28_P1000_R0.5.npy')
-yData = np.load('trainingData/yDataS100000_R28_P1000_R0.5.npy')
-times = np.load('trainingData/timesS100000_R28_P1000_R0.5.npy')
-distance = np.load('trainingData/distanceS100000_R28_P1000_R0.5.npy') 
+xData =np.load('trainingData/xDataC8C13S40000_R28_P500_R0.5.npy')
+yData = np.load('trainingData/yDataC8C13S40000_R28_P500_R0.5.npy')
+times = np.load('trainingData/timesC8C13S40000_R28_P500_R0.5.npy')
+distance = np.load('trainingData/distanceC8C13S40000_R28_P500_R0.5.npy') 
+#%% remove nan values
+
+nanValues =np.argwhere(np.isnan(xData)) 
+xData = np.delete(xData,np.unique(nanValues[:,0]),0)
+yData = np.delete(yData,np.unique(nanValues[:,0]),0)
+times = np.delete(times,np.unique(nanValues[:,0]),0)
+distance = np.delete(distance,np.unique(nanValues[:,0]),0)
+#%% narrow the field of vision
+
+xData = xData[:,:,10:18,10:18]
+print(xData.shape)
 #%%
+import matplotlib.pyplot as plt
+plt.plot(np.abs(times[:,3]-times[:,1])[:25000])
+
+#%%
+#%% remove images close to each other in time
+import datetime as datetime
+cleanXData = xData
+cleanYData = yData
+cleanTimes = times
+cleanDistance = distance
+index =0
+tmp_indexes = list(range(0,len(xData)))
+
+index = 0
+for i in range(len(xData)):
+#for i in range(5):
+    if i+1 > len(tmp_indexes):
+        break
+    #print(tmp_indexes[i])
+    #print(times[tmp_indexes[i]:tmp_indexes[i]+200,0])
+    #print(np.where(np.abs(times[tmp_indexes[i]:tmp_indexes[i]+200,0]-times[tmp_indexes[i],0]) <2)[0])
+    #print(len(tmp_indexes))
+    #print(tmp_indexes[i:i+200])
+    indexes_to_remove =  np.where(np.abs(times[tmp_indexes[i:i+200],0]-times[tmp_indexes[i],0]) <2)[0][1:]+i
+    #print(len(indexes_to_remove))
+    #print(indexes_to_remove)
+    #print(tmp_indexes[0:200])
+    #for index in indexes_to_remove:
+    tmp_indexes = np.delete(tmp_indexes,indexes_to_remove)
+    #tmp_indexes = (tmp_indexes,np.where(np.abs(times[tmp_indexes[i:i+200],0]-times[tmp_indexes[i],0]) <2)[0][1:])
+    #print(tmp_indexes[0:100])
+    #print(tmp_indexes[0:200])
+    print(len(tmp_indexes))
+    print(i)
+        
+
+#%%
+tmp_x = xData[tmp_indexes,:,:,:]
+tmp_y = yData[tmp_indexes]
+tmp_times = times[tmp_indexes]
+tmp_distace = distance[tmp_indexes]
+
 
 #%%
 import matplotlib.pyplot as plt
-plt.plot(distance)
+plt.plot(tmp_times[:200,0])
+
+for i in range(20):
+    plt.imshow(tmp_x[i+200,0,:,:])
+    plt.show()
+#%%
+
+nmbImages = 20
+import matplotlib.pyplot as plt
+import numpy as np
+for i in range(5800,5800+nmbImages):
+    
+    fig = plt.figure()
+    fig.suptitle('timediff %s, rainfall %s' % (np.abs(times[i,0]-times[i,1]), yData[i]), fontsize=20)
+    plt.imshow(xData[i,1,:,:])
+#%%
+#non_zero_indexes = np.where(yData > 0)[0]
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots()
+ax.hist(yData, bins = 400)
+ax.set_xlim([0,20])
+
+#yData[np.where(yData > 15)[0]] = 15
+#%%
+import matplotlib.pyplot as plt
+plt.plot(yData)
 #%% select the data within time limit
-indexes = np.where(np.abs(times[:,0]-times[:,1])<100)[0]
-xData = xData[indexes,:,:]
+
+indexes = np.where(np.abs(times[:,0]-times[:,1])<200)[0]
+xData = xData[indexes,:,:,:]
 yData = yData[indexes]
 times = times[indexes]
 distance = distance[indexes]
+
 '''
 indexes = np.where(distance<0.0050)[0]
 xData = xData[indexes,:,:]
@@ -38,6 +131,7 @@ yData = yData[indexes]
 times = times[indexes]
 distance = distance[indexes]
 '''
+#yData[np.where(yData > 15)] = 15
 print(xData.shape)
 print(yData.shape)
 print(times.shape)
@@ -49,16 +143,19 @@ from sklearn.preprocessing import StandardScaler
 from data_loader import preprocessDataForTraining
 
 # preprocess and combine the data
+#newXData, newYData = preprocessDataForTraining(xData, yData, times, distance)
 newXData, newYData = preprocessDataForTraining(xData, yData, times, distance)
 
 quantiles = [0.1,0.2,0.3,0.4,0.5,0.6,0.7,0.8,0.9]
 input_dim = newXData.shape[1]
-model = qrnn.QRNN(input_dim,quantiles, depth = 10,width = 128, activation = 'relu')
+model = qrnn.QRNN(input_dim,quantiles, depth = 24,width = 512, activation = 'relu')
 
-
-
+import random
+#random_shuffle = random.sample(range(0,len(newXData)),len(newXData))
+#newXData = newXData[random_shuffle,:]
+#newYData = newYData[random_shuffle]
 # split into training and test sets
-cut_index = 19000
+cut_index = 32000
 xTrain = newXData[:cut_index,:]
 xTest = newXData[cut_index:,:]
 
@@ -66,8 +163,11 @@ yTrain = newYData[:cut_index]
 yTest = newYData[cut_index:]
 
 
+#yTrain[np.where(yTrain > 15)] = 15
+#yTest[np.where(yTest > 15)] = 15
+
 #%% fit the model
-model.fit(x_train = xTrain, y_train = yTrain,x_val = xTest, y_val = yTest,batch_size = 128,maximum_epochs = 100)
+model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 100)
 #%%
 
 model.save('model.h5')
@@ -76,25 +176,32 @@ from keras.models import load_model
 model = load_model('model.h5')
 
 #%% predict
-prediction = model.predict(xTest)
-
+test_set_x = xTest
+test_set_y = yTest
+prediction = model.predict(test_set_x)
+#print(prediction)
 #%% calculate the mean value
-mean = np.zeros((xTest.shape[0],1))
-for i in range(xTest.shape[0]):
+mean = np.zeros((test_set_x.shape[0],1))
+for i in range(test_set_x.shape[0]):
     
-    mean[i,0] = model.posterior_mean(xTest[i,:])
+    mean[i,0] = model.posterior_mean(test_set_x[i,:])
     
 
 #%% plot 
 import matplotlib.pyplot as plt
-plt.plot(mean)
+import matplotlib.pyplot as plt
+fig, ax = plt.subplots(figsize=(12, 8))
+line = 1
+ax.set_ylim([0,20])
 
-print(np.mean(prediction[:,5]))
-print(np.mean(yTest))
-#plt.ylim(0,0.2)
-#print(prediction[:,8])
-#plt.plot(prediction[:,8])
-plt.plot(yTest, alpha = 0.5)
+ax.plot(mean,linewidth=line)
+
+print(np.mean(mean))
+print(np.mean(test_set_y))
+
+#print(prediction[:,5])
+#plt.plot(prediction[:,0])
+ax.plot(test_set_y, alpha = 0.5,linewidth=line)
 #plt.plot(prediction[:,0])
 #%% generate QQ plot
 from visulize_results import generateQQPLot
@@ -102,10 +209,23 @@ generateQQPLot(quantiles, yTest, prediction)
 
 #%% generate qq plots for intervals of y data
 from visulize_results import generate_qqplot_for_intervals
-generate_qqplot_for_intervals(quantiles, yTest, prediction)
+generate_qqplot_for_intervals(quantiles, test_set_y, prediction, 1)
+#%% get the error
+from visulize_results import getMeansSquareError
+getMeansSquareError(test_set_y, mean, 1)
+#%% generate confision matrix, rain no rain
+from visulize_results import confusionMatrix
+confusionMatrix(test_set_y,mean)
 #%%
-
-
+from visulize_results import plotIntervalPredictions
+plotIntervalPredictions(test_set_y, mean, 1)
+#%%
+print(np.mean(mean[np.where(yTest == 0)[0]]))
+plt.plot(mean[np.where(test_set_y == 0)[0]])
+#%%
+print(np.mean(mean[np.where(yTest > 0)[0]]))
+plt.plot(mean[np.where(test_set_y > 0)[0]])
+#%%
 #generateRainfallImage(model,'data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc')    
 
 #%%

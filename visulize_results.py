@@ -5,7 +5,9 @@ Created on Fri Feb  7 16:10:20 2020
 @author: gustav
 """
 def generateQQPLot(quantiles, yTest, prediction):
+    import numpy as np
     q = np.zeros((len(quantiles),1))
+    import matplotlib.pyplot as plt  
     for i in range(len(quantiles)):
         nmb = 0
         for j in range(yTest.shape[0]):
@@ -15,11 +17,102 @@ def generateQQPLot(quantiles, yTest, prediction):
         
         q[i,0] = nmb / yTest.shape[0]
         
-    import matplotlib.pyplot as plt  
+    
     x = np.linspace(0, 1, 100)
     plt.plot(quantiles,q[:,0])
     plt.plot(x,x)
-
+def generate_qqplot_for_intervals(quantiles, yTest, prediction, sigma):
+    import numpy as np
+    import matplotlib.pyplot as plt  
+    fig, ax=plt.subplots(nrows=10, ncols=1,figsize=(5,50))
+    for k in range(10):
+       
+        # select the indexes within the specific interval
+        indexes = np.where((yTest > sigma*k)&(yTest < (k+1)*sigma))[0]
+        tmp_y = yTest[indexes]
+        tmp_pred = prediction[indexes,:]
+        
+        q = np.zeros((len(quantiles),1))
+        for i in range(len(quantiles)):
+            nmb = 0
+            for j in range(tmp_y.shape[0]):
+                if tmp_pred[j,i] > tmp_y[j]:
+                    nmb +=1
+            
+            if tmp_y.shape[0] != 0:
+                
+                q[i,0] = nmb / tmp_y.shape[0]
+            else:
+                q[i,0] = 0
+            
+      
+        x = np.linspace(0, 1, 100)
+        ax[k].set_title('interval: ('+str(sigma*k)+','+str(sigma*(k+1))+')'+' amount of observations'+ str(len(indexes)))
+        ax[k].plot(quantiles,q[:,0])
+        ax[k].plot(x,x)
+    
+    plt.show()
+    
+def getMeansSquareError(yTest, predictions, sigma):
+    import numpy as np
+    import matplotlib.pyplot as plt  
+    fig, ax=plt.subplots()
+    error = np.zeros((15))
+    for k in range(15):
+       
+        # select the indexes within the specific interval
+        indexes = np.where((yTest > sigma*k)&(yTest < (k+1)*sigma))[0]
+        tmp_y = yTest[indexes]
+        tmp_pred = predictions[indexes,:]
+        
+        error[k] = np.abs(tmp_y-tmp_pred).sum()/len(tmp_y)
+      
+     
+    ax.plot(error)
+    
+def plotIntervalPredictions(yTest, prediction, sigma):
+    import numpy as np
+    import matplotlib.pyplot as plt  
+    fig, ax=plt.subplots(nrows=10, ncols=1,figsize=(5,50))
+    for k in range(10):
+       
+        # select the indexes within the specific interval
+        indexes = np.where((yTest > sigma*k)&(yTest < (k+1)*sigma))[0]
+        tmp_y = yTest[indexes]
+        tmp_pred = prediction[indexes,:]
+    
+            
+      
+        ax[k].set_title('mean pred:'+ str(np.mean(tmp_pred))+'mean actual:'+str(np.mean(tmp_y)))
+        ax[k].plot(tmp_y)
+        ax[k].plot(tmp_pred,alpha = 0.5)
+    
+    plt.show()
+def confusionMatrix(yTest, predictions):
+    #conf_matrix = np.zeros(2)
+    
+    pred_rain_was_rain = 0
+    pred_rain_wasnt_rain= 0
+    pred_no_rain_was_rain = 0
+    pred_no_rain_wasnt_rain = 0
+    print(yTest.shape)
+    print(predictions.shape)
+    
+    for i in range(len(yTest)):
+        
+        if yTest[i] == 0 and predictions[i] == 0:
+            pred_no_rain_wasnt_rain +=1
+        
+        elif yTest[i] == 0 and predictions[i] > 0:
+            pred_rain_wasnt_rain +=1
+        
+        elif yTest[i] > 0 and predictions[i] == 0:
+            pred_rain_wasnt_rain +=1
+        
+        elif yTest[i] > 0 and predictions[i] > 0:
+            pred_rain_was_rain +=1 
+    
+    print('pred_rain_was_rain:'+str(pred_rain_was_rain)+'pred_rain_wasnt_rain:'+str(pred_rain_wasnt_rain)+'pred_no_rain_was_rain:'+str(pred_no_rain_was_rain)+'pred_no_rain_wasnt_rain:'+str(pred_no_rain_wasnt_rain))
 def generateRainfallImage(model,data_file_path):
     
     im_width = 1000
