@@ -100,54 +100,82 @@ def confusionMatrix(yTest, predictions):
     
     for i in range(len(yTest)):
         
-        if yTest[i] == 0 and predictions[i] == 0:
+        if yTest[i] <= 0 and predictions[i] <= 0:
             pred_no_rain_wasnt_rain +=1
         
-        elif yTest[i] == 0 and predictions[i] > 0:
+        elif yTest[i] <= 0 and predictions[i] > 0:
             pred_rain_wasnt_rain +=1
         
-        elif yTest[i] > 0 and predictions[i] == 0:
-            pred_rain_wasnt_rain +=1
+        elif yTest[i] > 0 and predictions[i] <= 0:
+            pred_no_rain_was_rain +=1
         
         elif yTest[i] > 0 and predictions[i] > 0:
             pred_rain_was_rain +=1 
     
     print('pred_rain_was_rain:'+str(pred_rain_was_rain)+'pred_rain_wasnt_rain:'+str(pred_rain_wasnt_rain)+'pred_no_rain_was_rain:'+str(pred_no_rain_was_rain)+'pred_no_rain_wasnt_rain:'+str(pred_no_rain_wasnt_rain))
-def generateRainfallImage(model,data_file_path):
+def generateRainfallImage(model,data_file_paths):
+    from data_loader import downloadFile
+    from data_loader import extractGeoData
+    import numpy as np
+    import matplotlib.pyplot as plt
     
-    im_width = 1000
-    downloadFile(data_file_path)
-    lons,lats,C,rad, x_data, y_data = extractGeoData(data_file_path)
-    rad = rad.data
-    
-    rad = rad[:im_width,:im_width]
-    predictions = np.zeros((rad.shape[0],rad.shape[1]))
-    test = np.zeros((rad.shape[0]*rad.shape[1],6,6))
-    max_val = rad.max()
-    print(rad.shape)
-    
-    # generate rad images to be evaluated
-    index = 0
-    for i in range(rad.shape[0]):
-        #print(i)
-        for j in range(rad.shape[1]):
-            #print(np.reshape(rad[i-3:i+3,j-3:j+3].data,(1,36))/max_val)
-            if i<3 or i >rad.shape[0]-3 or j<3 or j >rad.shape[1]-3 :
-                test[index,:,:] = rad[:6,:6]
-            else:
-                test[index,:,:] = rad[i-3:i+3,j-3:j+3]
-            #predictions[i,j] = model.predict(np.reshape(rad[i-3:i+3,j-3:j+3],(1,36))/max_val)[0,4]
-            index = index +1
+    im_width = 200
+    field_of_vision = 8
+    half_field_of_vision = 4
+    test = np.zeros((im_width*im_width,len(data_file_paths),field_of_vision,field_of_vision))
+    channel =0
+    for file in data_file_paths:
+        #downloadFile(file)
+        lons,lats,C,rad, x_data, y_data = extractGeoData(file)
+        rad = rad.data
+        
+        rad = rad[:im_width,:im_width]
+       
+       
+        print(rad.shape)
+        
+        # generate rad images to be evaluated
+        index = 0
+        for i in range(rad.shape[0]):
+            #print(i)
+            for j in range(rad.shape[1]):
+                #print(np.reshape(rad[i-3:i+3,j-3:j+3].data,(1,36))/max_val)
+                if i<half_field_of_vision or i >rad.shape[0]-half_field_of_vision or j<half_field_of_vision or j >rad.shape[1]-half_field_of_vision :
+                    test[index,channel,:,:] = rad[:field_of_vision,:field_of_vision]
+                else:
+                    test[index,channel,:,:] = rad[i-half_field_of_vision:i+half_field_of_vision,j-half_field_of_vision:j+half_field_of_vision]
+                #predictions[i,j] = model.predict(np.reshape(rad[i-3:i+3,j-3:j+3],(1,36))/max_val)[0,4]
+                index = index +1
+        channel +=1
             
-            
-    test2 = np.reshape(test,(rad.shape[0]*rad.shape[1],36))
-    pred = model.predict(test2/max_val)
-    fig, ax = plt.subplots()
-    img = pred[:,4].reshape(im_width,im_width)
-    img_in =  np.ma.masked_less(img, 0.0001)
-    im = ax.imshow(img_in)
-    fig.colorbar(im, ax=ax)
-   
+    test2 = np.reshape(test,(rad.shape[0]*rad.shape[1],len(data_file_paths)*field_of_vision*field_of_vision))
+    test3 = np.zeros((rad.shape[0]*rad.shape[1],len(data_file_paths)*field_of_vision*field_of_vision+4))
+    test3[:,:len(data_file_paths)*field_of_vision*field_of_vision] = test2
+    pred = model.predict(test3)
+    #fig, axes = plt.subplots(nrows=2, ncols=3)
+    plt.figure(figsize=(20, 20))
+    
+    for i in range(pred.shape[1]):
+        
+        ax = plt.subplot(3, 3, i+1)
+        
+        #fig, ax = plt.subplots()
+        img = pred[:,i].reshape(im_width,im_width)
+        #img_in =  np.ma.masked_less(img, 0.001)
+        #im = axes.flat[i].imshow(img,vmin=0, vmax=20)
+        #im = axes.flat[i].imshow(img)
+        
+        #fig.colorbar(im)
+        im =plt.imshow(img)
+        #plt.title(i)
+        #im = ax.imshow(img_in)
+        plt.colorbar(im, ax=ax)
+    
+    #fig.subplots_adjust(right=0.8)
+    #cbar_ax = fig.add_axes([0.85, 0.15, 0.05, 0.7])
+    #fig.colorbar(im, cax=cbar_ax)
+
+    plt.show()
 
 def plotGPMData(DATE, extent):
     import numpy as np
@@ -307,3 +335,99 @@ def plotGOESData(FILE, extent):
     #plt.title('{}'.format(scan_start.strftime('%d %B %Y %H:%M UTC ')), loc='right')
     
     plt.show()
+def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
+    import numpy as np
+    from scipy.interpolate import griddata
+    import xarray
+    import cartopy.crs as ccrs
+    import matplotlib.pyplot as plt
+    import datetime
+    from data_loader import get_single_GPM_pass
+    from data_loader import convertTimeStampToDatetime
+    from data_loader import getGEOData
+    extent = [-70, -50, -10, 2]
+    fig = plt.figure(figsize=(30, 24))
+    
+    # Generate an Cartopy projection
+    pc = ccrs.PlateCarree()
+    ax = fig.add_subplot(6, 1, 1, projection=pc)
+    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    
+    
+    
+    ax.coastlines(resolution='50m', color='black', linewidth=0.5)
+    #ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+    ax.add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+    
+    
+    
+    perc_tot_rate, long, lat, time = get_single_GPM_pass(DATE)
+    GPM_data = np.zeros((len(perc_tot_rate),4))
+    GPM_data[:,0] = perc_tot_rate
+    GPM_data[:,1] = long
+    GPM_data[:,2] = lat
+    GPM_data[:,3] = time
+    receptiveField = 28
+    dataSize = len(perc_tot_rate)
+    xData = np.zeros((dataSize,2,receptiveField,receptiveField))
+    times = np.zeros((dataSize,3))
+    yData = np.zeros((dataSize,1))
+    distance = np.zeros((dataSize,2))
+   
+    times[:,0] = time
+    xData[:,0,:,:], times[:,1], distance[:,0] = getGEOData(GPM_data,'C13')
+    xData[:,0,:,:] = (xData[:,0,:,:]-mean1)/std1
+    
+    xData[:,1,:,:], times[:,2], distance[:,1] = getGEOData(GPM_data,'C08')
+    
+    xData[:,1,:,:] = (xData[:,1,:,:]-mean2)/std2
+    
+    xData = xData[:,:,10:18,10:18]
+    print(xData)
+    print(np.mean(xData))
+    #print(convertTimeStampToDatetime(time[0]))
+    extent1  = [min(long),max(long),min(lat),max(lat)]
+    grid_x, grid_y = np.mgrid[extent1[0]:extent1[1]:200j, extent1[2]:extent1[3]:200j]
+    points = np.zeros((len(lat),2))
+    points[:,0] = long
+    points[:,1] = lat
+    values = perc_tot_rate
+    #print(grid_x)
+    print(values.max())
+    
+    upper_threshold = 20
+    indexPosList = [ i for i in range(len(values)) if values[i] >upper_threshold]
+    #print(indexPosList)
+    values[indexPosList] = upper_threshold
+    #print(values.max())
+    grid_z0 = griddata(points,values, (grid_x, grid_y), method='linear')
+    im = ax.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
+    plt.colorbar(im, ax=ax)
+    
+    input_1 = np.zeros((len(xData),8*8*2+4))
+    input_1[:,:8*8*2] = np.reshape(xData,(len(xData),8*8*2))
+    input_1[:,-1] = (times[:,0]-times[:,1])
+    input_1[:,-2] = distance[:,0]
+    input_1[:,-3] = distance[:,1]
+    input_1[:,-4] = (times[:,0]-times[:,2])
+    
+    pred = model.predict(input_1)
+    print(pred[:,4])
+    print(np.mean(pred))
+    # plot the precction
+    axes = []
+    for i in range(5):
+        axes.append(fig.add_subplot(6, 1, i+2, projection=pc))
+        axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
+        
+        
+        
+        axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
+        #ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+        axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+        
+        tmp = griddata(points,pred[:,i], (grid_x, grid_y), method='linear')
+        im =axes[-1].imshow(tmp.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
+        plt.colorbar(im, ax=axes[-1])
+    #plt.colorbar()
+    #print(np.nan_to_num(grid_z0).max())

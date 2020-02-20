@@ -60,6 +60,7 @@ def getClosestFile(DATE, CHANNEL):
     index_closest_file = np.argmin(date_diff[:,0])
     #print("the file")
     #print(files_for_hour[index_closest_file])
+    '''
     if index_closest_file == 0 and DATE.hour == 0:
         day_of_year = DATE.timetuple().tm_yday
         day_before = datetime(DATE.year, 1, 1,23) + timedelta(day_of_year - 2)
@@ -115,9 +116,10 @@ def getClosestFile(DATE, CHANNEL):
         #print("here4")
         #print(file_after)
         
-    
-   
-    return '%s' % (file_before),'%s' % (files_for_hour[index_closest_file]),'%s' % (file_after), getMiddleTime(files_for_hour[np.argmin(date_diff[:,0])]) 
+    '''
+    return '%s' % (files_for_hour[index_closest_file]), getMiddleTime(files_for_hour[np.argmin(date_diff[:,0])]) 
+
+    #return '%s' % (file_before),'%s' % (files_for_hour[index_closest_file]),'%s' % (file_after), getMiddleTime(files_for_hour[np.argmin(date_diff[:,0])]) 
 
 def downloadFile(FILE):
     '''
@@ -144,15 +146,7 @@ def extractGeoData(filePATH, prev_sat_h = 0, prev_sat_lon = 0, prev_sat_sweep = 
     import xarray
     from pyproj import Proj
     import numpy as np
-    '''
-    global lons,lats
-    global rad
-    global x_data
-    global y_data
-    global sat_h
-    global sat_lon
-    global sat_sweep
-    '''
+    
     maxLongitude = -40
     minLongitde = -80
     maxLatitide = 8
@@ -217,9 +211,15 @@ def extractGeoData(filePATH, prev_sat_h = 0, prev_sat_lon = 0, prev_sat_sweep = 
     
     x_data = x
     y_data = y
+    #print(sat_h)
+    #print(sat_lon)
+    #print(sat_sweep)
+    #print(x)
+    #print(y)
     # Perform cartographic transformation. That is, convert image projection coordinates (x and y)
     # to latitude and longitude values.
-    if prev_sat_h == sat_h and prev_sat_lon == sat_lon and prev_sat_sweep == sat_sweep and prev_x == x and prev_y == y:
+    
+    if prev_sat_h == sat_h and prev_sat_lon == sat_lon and prev_sat_sweep == sat_sweep and (prev_x.data == x.data).all() and (prev_y.data == y.data).all():
         lons = prev_lons
         lats = prev_lats
     else:
@@ -247,7 +247,7 @@ def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude, sat_h, sat
   
     return y_index, x_index, np.sqrt((longitude-lons)*(longitude-lons)+(latitude-lats)*(latitude-lats))
     
-def getGEOData(GPM_data, dataSize, channel):
+def getGEOData(GPM_data, channel):
     from netCDF4 import Dataset
     import numpy as np
     import time
@@ -258,8 +258,8 @@ def getGEOData(GPM_data, dataSize, channel):
     #    return np.zeros((receptiveField,receptiveField))
     
     # Download the data file
-    file_paths_before = []
-    file_paths_after = []
+    #file_paths_before = []
+    #file_paths_after = []
     filePaths = []
     newFileIndexes = []
     previousFileName = ""
@@ -268,12 +268,12 @@ def getGEOData(GPM_data, dataSize, channel):
    
     middleTime = datetime(1980,1,1)
     
-    for i in range(len(GPM_data[:dataSize,3])):
+    for i in range(len(GPM_data[:,3])):
         currentTime = convertTimeStampToDatetime(GPM_data[i,3])
         if(np.abs((currentTime-middleTime).total_seconds()) > 600):
             
-            file_path_before, filePath, file_path_after, middleTime = getClosestFile(currentTime, channel)
-            
+            #file_path_before, filePath, file_path_after, middleTime = getClosestFile(currentTime, channel)
+            filePath, middleTime = getClosestFile(currentTime, channel)
             #print(file_path_before)
             #print(filePath)
             #print(file_path_after)
@@ -282,17 +282,17 @@ def getGEOData(GPM_data, dataSize, channel):
         if filePath != previousFileName:
             newFileIndexes.append(i)
             filePaths.append(filePath)
-            file_paths_before.append(file_path_before)
-            file_paths_after.append(file_path_after)
+            #file_paths_before.append(file_path_before)
+            #file_paths_after.append(file_path_after)
             previousFileName = filePath
         
     end_time = time.time()
     print("time for getting file paths %s" % (end_time-start_time))
     # iterate through all unique file names
-    nmb_files = 3
-    xData = np.zeros((dataSize,nmb_files,receptiveField,receptiveField))
-    times = np.zeros((dataSize,nmb_files))
-    distance = np.zeros((dataSize,nmb_files))
+    nmb_files = 1
+    xData = np.zeros((len(GPM_data),nmb_files,receptiveField,receptiveField))
+    times = np.zeros((len(GPM_data),nmb_files))
+    distance = np.zeros((len(GPM_data),nmb_files))
     
     lons = []
     lats = []
@@ -303,7 +303,7 @@ def getGEOData(GPM_data, dataSize, channel):
     y_data =  []
     
     for i in range(len(newFileIndexes)):
-        
+        '''
         filePATH = file_paths_before[i]
         FILE = 'data/'+file_paths_before[i].split('/')[-1]
         print(FILE)
@@ -323,7 +323,7 @@ def getGEOData(GPM_data, dataSize, channel):
         sat_sweep = C['goes_imager_projection'].sweep_angle_axis
        
         if i == len(newFileIndexes)-1:
-            endIndex = dataSize
+            endIndex = len(GPM_data)
         else:
             endIndex = newFileIndexes[i+1]
         
@@ -332,7 +332,7 @@ def getGEOData(GPM_data, dataSize, channel):
         for j in range(newFileIndexes[i],endIndex):
             xIndex, yIndex , distance[j,0]= getIndexOfGeoDataMatricFromLongitudeLatitude(GPM_data[j,1], GPM_data[j,2], sat_h, sat_lon, sat_sweep, x_data,y_data)
             xData[j,0,:,:], times[j,0] = rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
-        
+        '''
         # closest file
         filePATH = filePaths[i]
         FILE = 'data/'+filePaths[i].split('/')[-1]
@@ -351,16 +351,16 @@ def getGEOData(GPM_data, dataSize, channel):
         sat_sweep = C['goes_imager_projection'].sweep_angle_axis
        
         if i == len(newFileIndexes)-1:
-            endIndex = dataSize
+            endIndex = len(GPM_data)
         else:
             endIndex = newFileIndexes[i+1]
         
         
         
         for j in range(newFileIndexes[i],endIndex):
-            xIndex, yIndex , distance[j,1]= getIndexOfGeoDataMatricFromLongitudeLatitude(GPM_data[j,1], GPM_data[j,2], sat_h, sat_lon, sat_sweep, x_data,y_data)
-            xData[j,1,:,:], times[j,1] = rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
-        
+            xIndex, yIndex , distance[j,0]= getIndexOfGeoDataMatricFromLongitudeLatitude(GPM_data[j,1], GPM_data[j,2], sat_h, sat_lon, sat_sweep, x_data,y_data)
+            xData[j,0,:,:], times[j,0] = rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
+        '''
         # file after
         filePATH = file_paths_after[i]
         FILE = 'data/'+file_paths_after[i].split('/')[-1]
@@ -389,10 +389,10 @@ def getGEOData(GPM_data, dataSize, channel):
             xIndex, yIndex , distance[j,2]= getIndexOfGeoDataMatricFromLongitudeLatitude(GPM_data[j,1], GPM_data[j,2], sat_h, sat_lon, sat_sweep, x_data,y_data)
             xData[j,2,:,:], times[j,2] = rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
         
-        
+        '''
         
     
-    return xData, times, distance   
+    return xData[:,0,:,:], times[:,0], distance[:,0]   
 
 def getGPMFilesForSpecificDay(DATE):
     '''
@@ -451,7 +451,7 @@ def downloadGPMFile(FILENAME, DATE):
     except:
        print('requests.get() returned an error code '+str(result.status_code))
        
-def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass, rain_norain_division):
+def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass):
     
     '''
         retruns GPM data for the day provided. The data is in form of an array
@@ -533,9 +533,10 @@ def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass, rain_norain_division)
             time = time[indexes]
             
             # get indexes of rainy data
-            
+            '''
             rain_indexes = np.where(np.abs(precepTotRate) > 0)[0]
             norain_indexes = np.where(np.abs(precepTotRate) == 0)[0]
+            '''
             '''
             print(len(precepTotRate))
             print(len(rain_indexes))
@@ -543,14 +544,17 @@ def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass, rain_norain_division)
             print(int((len(rain_indexes) - rain_norain_division*len(rain_indexes))/rain_norain_division))
             print(len( norain_indexes[:int((len(rain_indexes) - rain_norain_division*len(rain_indexes))/rain_norain_division)]))
             '''
-            tot_indexes = np.concatenate((rain_indexes, norain_indexes[:int((len(rain_indexes) - rain_norain_division*len(rain_indexes))/rain_norain_division)]))
+            
+            
+            #tot_indexes = np.concatenate((rain_indexes, norain_indexes[:int((len(rain_indexes) - rain_norain_division*len(rain_indexes))/rain_norain_division)]))
             #tot_indexes = rain_indexes + norain_indexes[:int((len(rain_indexes) - rain_norain_division*len(rain_indexes))/rain_norain_division)]
             #print(len(tot_indexes))
+            '''
             precepTotRate = precepTotRate[tot_indexes]
             longitude = longitude[tot_indexes]
             latitude = latitude[tot_indexes]
             time = time[tot_indexes]
-            
+            '''
             
             
             index1 = min(maxDataSize,index+len(precepTotRate),index+data_per_GPM_pass)
@@ -583,7 +587,7 @@ def convertTimeStampToDatetime(timestamp):
     return datetime(1980, 1, 6) + timedelta(seconds=timestamp - (35 - 19))
     
 
-def getTrainingData(dataSize, nmb_GPM_pass, rain_norain_division):
+def getTrainingData(dataSize, nmb_GPM_pass):
     
     import numpy as np
     import datetime
@@ -595,10 +599,10 @@ def getTrainingData(dataSize, nmb_GPM_pass, rain_norain_division):
     in the given area together with its label
     '''
     
-    #xData = np.zeros((dataSize,2,receptiveField,receptiveField))
-    times = np.zeros((dataSize,4))
+    xData = np.zeros((dataSize,2,receptiveField,receptiveField))
+    times = np.zeros((dataSize,3))
     yData = np.zeros((dataSize,1))
-    #distance = np.zeros((dataSize,2))
+    distance = np.zeros((dataSize,2))
     '''
         First step is to get the label data. To do this, we look at a specifi
         passing of the satelite over the area. We then extract the points
@@ -610,7 +614,7 @@ def getTrainingData(dataSize, nmb_GPM_pass, rain_norain_division):
             3: rain amount
     '''
     start_time = time.time()
-    GPM_data = getGPMData(datetime.datetime(2017,8,2),dataSize,nmb_GPM_pass,rain_norain_division)
+    GPM_data = getGPMData(datetime.datetime(2017,8,2),dataSize,nmb_GPM_pass)
     times[:,0] = GPM_data[:,3]
     end_time = time.time()
     print("time for collecting GPM Data %s" % (end_time-start_time))
@@ -619,18 +623,19 @@ def getTrainingData(dataSize, nmb_GPM_pass, rain_norain_division):
     '''
     start_time = time.time()
     
-    xData, tmp_times, distance = getGEOData(GPM_data, dataSize,'C13')
-    times[:,1:] = tmp_times
-    #xData[:dataSize,1,:,:], times[:dataSize,2], distance[:,1] = getGEOData(GPM_data, dataSize,'C08')
-    yData = GPM_data[:dataSize,0]
+    xData[:,0,:,:], times[:,1], distance[:,0] = getGEOData(GPM_data,'C13')
+    
+    xData[:,1,:,:], times[:,2], distance[:,1] = getGEOData(GPM_data,'C08')
+    
+    yData = GPM_data[:,0]
     end_time = time.time()
     
     print("time for collecting GEO Data %s" % (end_time-start_time))
     import numpy as np
-    np.save('trainingData/xDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', xData)   
-    np.save('trainingData/yDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', yData)   
-    np.save('trainingData/timesC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', times)
-    np.save('trainingData/distanceC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'_R'+str(rain_norain_division)+'.npy', distance)  
+    np.save('trainingData/xDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'.npy', xData)   
+    np.save('trainingData/yDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'.npy', yData)   
+    np.save('trainingData/timesC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'.npy', times)
+    np.save('trainingData/distanceC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'.npy', distance)  
     return xData, yData, times, distance
 
 
@@ -671,15 +676,50 @@ def preprocessDataForTraining(xData, yData, times, distance):
     tmp[:,-3] = (times[:,0]-times[:,2])/(times[:,0]-times[:,2]).max()
     tmp[:,-4] = distance[:,1]/distance.max()
     '''
-    '''
+    
     tmp[:,-1] = (times[:,0]-times[:,1])
     tmp[:,-2] = distance[:,0]
-    tmp[:,-3] = (times[:,0]-times[:,2])
-    tmp[:,-4] = distance[:,1]
-    '''
+    tmp[:,-3] = distance[:,1]
+    tmp[:,-4] = (times[:,0]-times[:,2])
+    
+  
+    
     newXData = tmp
     
     # scale the data with unit variance and and between 0 and 1 for the labels
     
-    
     return newXData, newYData
+def get_single_GPM_pass(DATE): 
+    import numpy as np
+    import h5py
+    
+    files = getGPMFilesForSpecificDay(DATE)
+   # FILENAME = files[0]
+    
+    # download the gpm data
+   # downloadGPMFile(files[0],DATE)
+    
+    # read the data
+    
+    for FILENAME in files:
+            # download the gpm data
+            downloadGPMFile(FILENAME,DATE)
+            
+            # read the data
+            try:
+                path =  'data/'+FILENAME
+                f = h5py.File(path, 'r')
+                precepTotRate = f['NS']['surfPrecipTotRate'][:].flatten()
+                longitude = f['NS']['Longitude'][:].flatten()
+                latitude = f['NS']['Latitude'][:].flatten()
+                time = np.array([f['NS']['navigation']['timeMidScan'][:],]*f['nrayNS_idx'].shape[0]).transpose().flatten()
+                indexes = np.where(np.abs(precepTotRate) < 200)[0]
+                precepTotRate = precepTotRate[indexes]
+                longitude = longitude[indexes]
+                latitude = latitude[indexes]
+                time = time[indexes]
+                return precepTotRate, longitude, latitude, time
+            except:
+                continue
+            # remove null data 
+            
