@@ -97,12 +97,7 @@ class QRNN(nn.Module):
         '''
         return x
     
-    def num_flat_features(self, x):
-       size = x.size()[1:]  # all dimensions except the batch dimension
-       num_features = 1
-       for s in size:
-           num_features *= s
-       return num_features
+   
 
 #%%
 import torch.optim as optim
@@ -159,23 +154,7 @@ x_test = xData[split_index:,:]
 y_train = yData[:split_index]
 y_test = yData[split_index:]
 
-#%%
-import matplotlib.pyplot as plt
-indx = 1400
-img = np.reshape(x_train[indx,:], (2,8,8))
-#print(img)
-#img = xData[indx,:]
-plt.imshow(img[0,:,:])
-plt.show()
-plt.imshow(img[1,:,:])
-plt.show()
 
-#%%
-for i in range(20):
-    plt.imshow(np.reshape(x_train[i*20,64:128], (8,8)))
-    plt.title(y_train[i*20])
-    plt.show()
-    #print(y_train[i*20])
 #%%
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(device)
@@ -207,7 +186,6 @@ def quantile_loss(output, target, taus):
     return e
 
 # define loss and optimizer
-criterion = nn.MSELoss()
 import random
 optimizer = optim.SGD(net.parameters(), lr=0.01) 
 batch_size =128
@@ -277,15 +255,8 @@ for epoch in range(50):  # loop over the dataset multiple times
     
 
 print('Finished Training')
-#%% val loss
-print(x_test.shape)
-val_loss = []
-val_input =[]
-inputs = []
-labels = []
-tot_val_loss = 0
-torch.cuda.empty_cache()
-#%%
+
+#%% make predictions
 random.sample(range(0, len(x_test)), len(x_test))
 n = 500
 tot_val_loss = 0
@@ -303,19 +274,8 @@ for i in range(int(len(x_test)/n)):
     
 print(tot_val_loss/int(len(x_test)/n))
 #val_loss = criterion(net(val_input),val_labels)
-#%% predict 
-torch.cuda.empty_cache()
-#%%
-inputs = torch.tensor(x_test[:4000],dtype=torch.float)
-inputs = inputs.to(device)      
-output = net(inputs)
 
-print(output.size())
-
-#%%
-print(net.fc4.weight)
-
-#%%
+#%% enterpret the results
 output = out
 import matplotlib.pyplot as plt
 
@@ -333,17 +293,7 @@ generate_qqplot_for_intervals(tau, y_test[:20000], np.flip(output.cpu().detach()
 from visulize_results import confusionMatrix
 print(len(np.where(y_test > 0)[0]))
 confusionMatrix(y_test,output[:,4])
-#%%
-import torch
-import torchvision
-import torchvision.transforms as transforms
-transform = transforms.Compose(
-    [transforms.ToTensor(),
-     transforms.Normalize((0.5, 0.5, 0.5), (0.5, 0.5, 0.5))])
-testset = torchvision.datasets.CIFAR10(root='./data', train=False,
-                                       download=True, transform=transform)
-testloader = torch.utils.data.DataLoader(testset, batch_size=4,
-                                         shuffle=False, num_workers=10)
+
 
 #%%print(type(testset))
 import numpy as np
@@ -352,39 +302,3 @@ yData = np.load('trainingData/yDataC8C13S500000_R28_P1000_R0.5.npy')
 times = np.load('trainingData/timesC8C13S500000_R28_P1000_R0.5.npy')
 distance = np.load('trainingData/distanceC8C13S500000_R28_P1000_R0.5.npy')
 
-#%%
-import matplotlib.pyplot as plt
-import random
-#plt.hist(yData)
-#rand_sample = random.sample(range(0,900),1000)
-a =yData
-n = 2000
-interval_1 = np.where(np.logical_and(a>0, a<1))[0]
-rand_sample = random.sample(range(0,len(interval_1)),n)
-interval_1 = interval_1[rand_sample]
-
-interval_2 = np.where(np.logical_and(a>1, a<2))[0]
-rand_sample = random.sample(range(0,len(interval_2)),n)
-interval_2 = interval_2[rand_sample]
-
-interval_3 = np.where(np.logical_and(a>2, a<3))[0]
-rand_sample = random.sample(range(0,len(interval_3)),n)
-interval_3 = interval_3[rand_sample]
-
-#interval_2 = np.where(np.logical_and(a>6, a<12))[0][rand_sample]
-#interval_3 = np.where(np.logical_and(a>12, a<18))[0][rand_sample]
-#interval_4 = np.where(np.logical_and(a>12, a<16))[0][rand_sample]
-interval_5 = np.where(a>5)[0]
-indexes = np.concatenate([interval_1,interval_2,interval_3, interval_5])
-indexes =np.sort(indexes)
-print(indexes)
-print(len(indexes))
-tmp = yData[indexes]
-plt.hist(tmp,60)
-#%%
-print(xData.shape)
-#%%
-xData = xData[indexes,:,:,:]
-yData = yData[indexes]
-times = times[indexes,:]
-distance = distance[indexes,:]

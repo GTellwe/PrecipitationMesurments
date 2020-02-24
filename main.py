@@ -12,197 +12,78 @@ from data_loader import getTrainingData
 
 
 # create training data
-xData, yData , times, distance = getTrainingData(200000,200)   
-
-
-#%% load data from files
-import numpy as np
-
-xData =np.load('trainingData/xDataC8C13S200000_R28_P200.npy')
-yData = np.load('trainingData/yDataC8C13S200000_R28_P200.npy')
-times = np.load('trainingData/timesC8C13S200000_R28_P200.npy')
-distance = np.load('trainingData/distanceC8C13S200000_R28_P200.npy')  
+xData, yData , times, distance = getTrainingData(350000,200, GPM_resolution = 3)   
 
 
 
-#%% remove nan values
-nanValues =np.argwhere(np.isnan(xData)) 
-xData = np.delete(xData,np.unique(nanValues[:,0]),0)
-yData = np.delete(yData,np.unique(nanValues[:,0]),0)
-times = np.delete(times,np.unique(nanValues[:,0]),0)
-distance = np.delete(distance,np.unique(nanValues[:,0]),0)
 
-
-#%% narrow the field of vision
-xData = xData[:,:,10:18,10:18]
-print(xData.shape)
-#%% remove images close to each other in time
-import datetime as datetime
-cleanXData = xData
-cleanYData = yData
-cleanTimes = times
-cleanDistance = distance
-index =0
-tmp_indexes = list(range(0,len(xData)))
-
-index = 0
-for i in range(len(xData)):
-#for i in range(5):
-    if i+1 > len(tmp_indexes):
-        break
-   
-    indexes_to_remove =  np.where(np.abs(times[tmp_indexes[i:i+200],0]-times[tmp_indexes[i],0]) <2)[0][1:]+i
-    tmp_indexes = np.delete(tmp_indexes,indexes_to_remove)
-    print(len(tmp_indexes))
-    print(i)
-        
 
 #%%
-tmp_x = xData[tmp_indexes,:,:,:]
-tmp_y = yData[tmp_indexes]
-tmp_times = times[tmp_indexes]
-tmp_distace = distance[tmp_indexes]
+indexes = np.where(yData > 0)[0]
+print(len(indexes))
+import matplotlib.pyplot as plt
+index = indexes[263]
+plt.imshow(xData[index,0,5:23,5:23:])
+plt.show()
+plt.imshow(xData[index,1,:,:])
+plt.show()
+plt.imshow(yData[index,:,:])
+print(times[index,0]-times[index,1])
+#print(yData[index,:,:])
 
-#%% select the data within time limit
-
-indexes = np.where(np.abs(times[:,0]-times[:,1])<200)[0]
-xData = xData[indexes,:,:,:]
-yData = yData[indexes]
-times = times[indexes]
-distance = distance[indexes]
-
-'''
-indexes = np.where(distance<0.0050)[0]
-xData = xData[indexes,:,:]
-yData = yData[indexes]
-times = times[indexes]
-distance = distance[indexes]
-'''
-#yData[np.where(yData > 15)] = 15
-print(xData.shape)
-print(yData.shape)
-print(times.shape)
-print(distance.shape)
 #%% code for the typhon qrnn
 from typhon.retrieval import qrnn 
 import numpy as np
 from sklearn.preprocessing import StandardScaler
 from data_loader import preprocessDataForTraining
+from data_loader import load_data
 
-# preprocess and combine the data
-#newXData, newYData = preprocessDataForTraining(xData, yData, times, distance)
-mean1 = np.mean(xData[:,0,:,:])
-mean2 = np.mean(xData[:,1,:,:])
-std1 = np.std(xData[:,0,:,:])
-std2 = np.std(xData[:,1,:,:])
-xData[:,0,:,:] = (xData[:,0,:,:]-mean1)/std1
-xData[:,1,:,:] = (xData[:,1,:,:]-mean2)/std2
-newXData, newYData = preprocessDataForTraining(xData, yData, times, distance)
 
-#newYData = newYData[:250000,:]
-#newXData = newXData[:250000,:]
+
+newXData, newYData, mean1, mean2,std1,std2 = load_data()
 quantiles = [0.1,0.3,0.5,0.7,0.9]
 input_dim = newXData.shape[1]
 model = qrnn.QRNN(input_dim,quantiles, depth = 8,width = 256, activation = 'relu')
 
 
-
-cut_index = 150000
+# split into training and validation set
+cut_index = 175000
 xTrain = newXData[:cut_index,:]
 xTest = newXData[cut_index:,:]
 
 yTrain = newYData[:cut_index]
 yTest = newYData[cut_index:]
 
-
-#yTrain[np.where(yTrain > 15)] = 15
-#yTest[np.where(yTest > 15)] = 15
-#%%
-
-#%% fit the model
-model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 50)
-#%%
+#%% train the model
+model.fit(x_train = xTrain, y_train = yTrain,batch_size = 128,maximum_epochs = 300)
+#%% save model
 
 model.save('model.h5')
-#%%
-from keras.models import load_model
-model = load_model('model.h5')
+#%% load model
+from typhon.retrieval import qrnn 
+#loaded_model = qrnn.QRNN()
+loaded_model = qrnn.QRNN.load('results/8_256_onyear_oneyear_28_7/model.h5')
 
-#%% predict
-test_set_x = xTest
-test_set_y = yTest
-prediction = model.predict(test_set_x)
+#%%  generate results
+from visulize_results import generate_all_results
+generate_all_results(model, xTest,yTest, quantiles)
 
-#print(prediction)
-
-#%%
-import matplotlib.pyplot as plt
-#plt.plot(prediction[:,4])
-print(prediction)
-print(test_set_x)
-print(np.mean(test_set_x))
-#%% calculate the mean value
-mean = np.zeros((test_set_x.shape[0],1))
-for i in range(test_set_x.shape[0]):
-    
-    mean[i,0] = model.posterior_mean(test_set_x[i,:])
-    
-
-#%% plot 
-import matplotlib.pyplot as plt
-
-fig, ax = plt.subplots(figsize=(12, 8))
-line = 1
-ax.set_ylim([0,20])
-
-ax.plot(mean,linewidth=line)
-
-print(np.mean(mean))
-print(np.mean(test_set_y))
-
-#print(prediction[:,5])
-#plt.plot(prediction[:,0])
-ax.plot(test_set_y, alpha = 0.5,linewidth=line)
-#plt.plot(prediction[:,0])
-#%% generate QQ plot
-from visulize_results import generateQQPLot
-generateQQPLot(quantiles, test_set_y, prediction)
-
-#%% generate qq plots for intervals of y data
-from visulize_results import generate_qqplot_for_intervals
-generate_qqplot_for_intervals(quantiles, test_set_y, prediction, 1)
-#%% get the error
-from visulize_results import getMeansSquareError
-getMeansSquareError(test_set_y, mean, 1)
-#%% generate confision matrix, rain no rain
-from visulize_results import confusionMatrix
-print(len(np.where(test_set_y > 0)[0]))
-confusionMatrix(test_set_y,prediction[:,4])
-#%%
-from visulize_results import plotIntervalPredictions
-plotIntervalPredictions(test_set_y, mean, 1)
-#%%
-print(np.mean(mean[np.where(yTest == 0)[0]]))
-plt.plot(mean[np.where(test_set_y == 0)[0]])
-#%%
-print(np.mean(mean[np.where(yTest > 0)[0]]))
-plt.plot(mean[np.where(test_set_y > 0)[0]])
-#%%
+#%% create an image of predictions fromo GEO data
 from visulize_results import generateRainfallImage
 
 #data_files = ['ABI-L1b-RadF_2020_014_12_OR_ABI-L1b-RadF-M6C13_G16_s20200141200200_e20200141209519_c20200141210001.nc']
 data_files = ['ABI-L1b-RadF_2020_014_12_OR_ABI-L1b-RadF-M6C13_G16_s20200141200200_e20200141209519_c20200141210001.nc','ABI-L1b-RadF_2020_014_12_OR_ABI-L1b-RadF-M6C08_G16_s20200141200200_e20200141209508_c20200141209587.nc']
 generateRainfallImage(model,data_files)    
 
-#%%
-#tmpx =np.load('trainingData/xDataC8C13S200000_R28_P200.npy')
+#%% create image of predictions and labels
+
 
 
 import datetime
 from visulize_results import plot_predictions_and_labels
 
 
-plot_predictions_and_labels(model, datetime.datetime(2020,1,16), mean1, std1, mean2, std2)
+plot_predictions_and_labels(model, datetime.datetime(2020,1,15), mean1, std1, mean2, std2)
 #%%
     
 import datetime as datetime
@@ -222,7 +103,7 @@ getGEOData(GPM_data[0,1], GPM_data[0,2],convertTimeStampToDatetime(GPM_data[0,3]
     
     
 plotGOESData('data/OR_ABI-L1b-RadF-M4C13_G16_s20172322120227_e20172322125040_c20172322125109.nc',[-80, -40, -20, 8])
-#%%
+#%% autoencoder
 
 from keras.layers import Input, Dense, Conv2D, MaxPooling2D, UpSampling2D
 from keras.models import Model
@@ -353,6 +234,10 @@ ax.get_yaxis().set_visible(False)
 
 plt.show()
      
+#%%
+from data_loader import getGPMData
+import datetime
+start_DATE = datetime.datetime(2017,10,10)
+pos_time_data, prec_data = getGPMData(start_DATE = datetime.datetime(2017,10,10), maxDataSize = 400, data_per_GPM_pass = 200, resolution = 3)
 
-
-
+#%%

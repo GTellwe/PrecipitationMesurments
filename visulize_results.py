@@ -21,6 +21,7 @@ def generateQQPLot(quantiles, yTest, prediction):
     x = np.linspace(0, 1, 100)
     plt.plot(quantiles,q[:,0])
     plt.plot(x,x)
+    plt.savefig('qq.png')
 def generate_qqplot_for_intervals(quantiles, yTest, prediction, sigma):
     import numpy as np
     import matplotlib.pyplot as plt  
@@ -52,6 +53,7 @@ def generate_qqplot_for_intervals(quantiles, yTest, prediction, sigma):
         ax[k].plot(x,x)
     
     plt.show()
+    plt.savefig('qq_intervals.png')
     
 def getMeansSquareError(yTest, predictions, sigma):
     import numpy as np
@@ -69,6 +71,7 @@ def getMeansSquareError(yTest, predictions, sigma):
       
      
     ax.plot(error)
+    plt.savefig('MSE_interval.png')
     
 def plotIntervalPredictions(yTest, prediction, sigma):
     import numpy as np
@@ -95,8 +98,8 @@ def confusionMatrix(yTest, predictions):
     pred_rain_wasnt_rain= 0
     pred_no_rain_was_rain = 0
     pred_no_rain_wasnt_rain = 0
-    print(yTest.shape)
-    print(predictions.shape)
+    #print(yTest.shape)
+    #print(predictions.shape)
     
     for i in range(len(yTest)):
         
@@ -406,10 +409,10 @@ def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
     
     input_1 = np.zeros((len(xData),8*8*2+4))
     input_1[:,:8*8*2] = np.reshape(xData,(len(xData),8*8*2))
-    input_1[:,-1] = (times[:,0]-times[:,1])
+    input_1[:,-1] = (times[:,0]-times[:,1])/1000
     input_1[:,-2] = distance[:,0]
     input_1[:,-3] = distance[:,1]
-    input_1[:,-4] = (times[:,0]-times[:,2])
+    input_1[:,-4] = (times[:,0]-times[:,2])/1000
     
     pred = model.predict(input_1)
     print(pred[:,4])
@@ -431,3 +434,136 @@ def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
         plt.colorbar(im, ax=axes[-1])
     #plt.colorbar()
     #print(np.nan_to_num(grid_z0).max())
+    
+def calculate_POD(predictions, targets):
+    
+    '''
+    returns the probability of detection
+    '''
+    import numpy as np
+    rain_indexes = np.where(targets > 0)[0]
+    true_possitives =0
+    missing_values = 0
+    for rain_index in rain_indexes:
+        
+        if predictions[rain_index] > 0:
+            true_possitives +=1
+        else:
+            missing_values +=1
+            
+    return true_possitives/(true_possitives+missing_values)
+
+def calculate_FAR(predictions, targets):
+    
+    '''
+    returns the false alarm ratio
+    '''
+    import numpy as np
+    predicted_rain_indexes = np.where(predictions > 0)[0]
+    true_possitives = 0
+    false_pssitives = 0
+    
+    for rain_index in predicted_rain_indexes:
+        if targets[rain_index] > 0:
+            true_possitives +=1
+        else:
+            false_pssitives +=1
+    return false_pssitives /(false_pssitives+true_possitives)
+
+def calculate_CSI(predictions, targets):
+    import numpy as np
+    '''
+    returns the critical sucess index
+    '''
+    
+    rain_indexes = np.where(targets > 0)[0]
+    predicted_rain_indexes = np.where(predictions > 0)[0]
+    true_possitives =0
+    missing_values = 0
+    false_pssitives = 0
+    for rain_index in rain_indexes:
+        
+        if predictions[rain_index] > 0:
+            true_possitives +=1
+        else:
+            missing_values +=1
+            
+    for rain_index in predicted_rain_indexes:
+        if targets[rain_index] == 0:
+            false_pssitives +=1
+            
+    return true_possitives/(true_possitives+false_pssitives+missing_values)
+
+def calculate_bias(predictions, targets):
+    return predictions.mean()-targets.mean()
+
+def calculate_tot_MSE(predictions,targets):
+    
+    tot =0
+    for i in range(len(predictions)):
+        tot += (predictions[i]-targets[i])*(predictions[i]-targets[i])
+    return tot/len(predictions)
+
+def generate_all_results(model,xTest, yTest, quantiles):
+    import numpy as np
+    
+    # predict
+    prediction = model.predict(xTest)
+    
+    # calculate the mean value
+    mean = np.zeros((xTest.shape[0],1))
+    for i in range(xTest.shape[0]):
+        
+        mean[i,0] = model.posterior_mean(xTest[i,:])
+    
+
+
+    # generate QQ plot
+    generateQQPLot(quantiles, yTest, prediction)
+    
+    # generate qq plots for intervals of y data
+    generate_qqplot_for_intervals(quantiles, yTest, prediction, 1)
+    
+    # get the error
+    getMeansSquareError(yTest, mean, 1)
+    
+    # generate confision matrix, rain no rain
+    print("#################### confusion matrixes ###############")
+          
+    for i , quantile in enumerate(quantiles):
+        print("Confusion matrx for the %s quantile" % quantile)
+        confusionMatrix(yTest,prediction[:,i])
+    
+    # plot interval predictions
+    plotIntervalPredictions(yTest, mean, 1)
+    
+    # get  the probability of detection
+    print("#################### POD ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_POD(prediction[:,i], yTest)))
+        
+    # get  the false alarm ratio
+    print("#################### FAR ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_FAR(prediction[:,i], yTest)))
+    
+    
+    # get the critical sucess index
+    print("#################### CSI ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_CSI(prediction[:,i], yTest)))
+    
+    
+    # get the bias
+    print("#################### bias ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_bias(prediction[:,i], yTest)))
+    
+    print("the mean bias is %s" % calculate_bias(mean, yTest))
+    
+    # get the total MSE
+    print("#################### MSE ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_tot_MSE(prediction[:,i], yTest)))
+    print("the mean total MSE is %s" % calculate_tot_MSE(mean, yTest))
+    
