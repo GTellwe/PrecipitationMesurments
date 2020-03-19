@@ -6,13 +6,15 @@ Created on Fri Feb  7 16:10:20 2020
 """
 def generateQQPLot(quantiles, yTest, prediction):
     import numpy as np
+    rain_threshold = 0.0001
     q = np.zeros((len(quantiles),1))
     import matplotlib.pyplot as plt  
     for i in range(len(quantiles)):
         nmb = 0
         for j in range(yTest.shape[0]):
             if prediction[j,i] > yTest[j,0]:
-                nmb +=1
+                #if yTest[j,0] == 0 and prediction[j,i] > rain_threshold:
+                    nmb +=1
         
         
         q[i,0] = nmb / yTest.shape[0]
@@ -338,6 +340,7 @@ def plotGOESData(FILE, extent):
     #plt.title('{}'.format(scan_start.strftime('%d %B %Y %H:%M UTC ')), loc='right')
     
     plt.show()
+
 def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
     import numpy as np
     from scipy.interpolate import griddata
@@ -504,19 +507,181 @@ def calculate_tot_MSE(predictions,targets):
         tot += (predictions[i]-targets[i])*(predictions[i]-targets[i])
     return tot/len(predictions)
 
-def generate_all_results(model,xTest, yTest, quantiles):
+def get_apriori_mean_estimate_kvote(y_test,y_train, mean):
+    import numpy as np
+    a_priori_mean = np.mean(y_train)
+    MSE_a_priori_mean =0
+    MSE_mean = 0
+    
+    for i in range(len(y_test)):
+        MSE_a_priori_mean += (a_priori_mean-y_test[i])*(a_priori_mean-y_test[i])
+        MSE_mean += (mean[i]-y_test[i])*(mean[i]-y_test[i])
+    
+    return MSE_mean/MSE_a_priori_mean
+
+def get_apriori_mean_estimate_kvote_abs_mean(y_test,y_train, mean):
+    import numpy as np
+    a_priori_mean = np.mean(y_train)
+    MSE_a_priori_mean =0
+    MSE_mean = 0
+    for i in range(len(y_test)):
+        MSE_a_priori_mean += np.abs((a_priori_mean-y_test[i]))
+        MSE_mean += np.abs((mean[i]-y_test[i]))
+    
+    return MSE_mean/MSE_a_priori_mean
+
+def get_correlation_labelsize_prediction(yTest, prediction):
+    import numpy as np
+    exy = 0
+    ex = 0
+    #ey = 0
+    for i in range(len(prediction)):
+       if yTest[i] > prediction[i,0] and yTest[i] < prediction[i,4]:
+           ex +=1
+           exy += yTest[i]
+       
+    
+    return (exy/len(prediction)-ex/len(prediction)*yTest.sum()/len(prediction))
+
+def get_correlation_MSE_labelsize(yTest, prediction):
+    import numpy as np
+    exy = 0
+    ex = 0
+    varx1 = 0
+    #varx2 = 0
+    #ey = 0
+    for i in range(len(prediction)):
+        
+        varx1 += np.abs(yTest[i]-prediction[i,2])*np.abs(yTest[i]-prediction[i,2])
+        ex += np.abs(yTest[i]-prediction[i,2])
+        exy += yTest[i]*np.abs(yTest[i]-prediction[i,2])
+    
+    var = varx1/len(prediction)-(ex/len(prediction))*(ex/len(prediction))
+    
+    return (exy/len(prediction)-ex/len(prediction)*yTest.sum()/len(prediction))/(np.std(yTest)*np.sqrt(var))
+def get_correlation_MSEapriori_labelsize(yTest,yTrain, prediction):
+    import numpy as np
+    exy = 0
+    ex = 0
+    varx1 = 0
+    #varx2 = 0
+    #ey = 0
+    pred = np.mean(yTrain)
+    for i in range(len(prediction)):
+        
+        varx1 += np.abs(yTest[i]-pred)*np.abs(yTest[i]-pred)
+        ex += np.abs(yTest[i]-pred)
+        exy += yTest[i]*np.abs(yTest[i]-pred)
+    
+    var = varx1/len(prediction)-(ex/len(prediction))*(ex/len(prediction))
+    
+    return (exy/len(prediction)-ex/len(prediction)*yTest.sum()/len(prediction))/(np.std(yTest)*np.sqrt(var))
+def correlation_target_prediction(yTest, prediction):
+    import numpy as np
+    exy = 0
+    ex = 0
+    #ey = 0
+    for i in range(len(prediction)):
+      
+        ex += prediction[i,2]
+        exy += yTest[i]*prediction[i,2]
+    
+        #ex += np.abs(yTest[i]-prediction[i,2])
+        #exy += yTest[i]*np.abs(yTest[i]-prediction[i,2])
+    
+    
+    return (exy/len(prediction)-ex/len(prediction)*yTest.sum()/len(prediction))/(np.std(yTest)*np.std(prediction[:,2]))
+def generate_all_results(model,xTest, yTest,yTrain ,quantiles):
     import numpy as np
     
     # predict
     prediction = model.predict(xTest)
-    
+    '''
     # calculate the mean value
     mean = np.zeros((xTest.shape[0],1))
     for i in range(xTest.shape[0]):
         
         mean[i,0] = model.posterior_mean(xTest[i,:])
     
+    '''
+    mean = np.reshape(prediction[:,2],(len(prediction),1))
+    
+    # generate QQ plot
+    generateQQPLot(quantiles, yTest, prediction)
+    
+    # generate qq plots for intervals of y data
+    generate_qqplot_for_intervals(quantiles, yTest, prediction, 1)
+    
+    # get the error
+    #getMeansSquareError(yTest, mean, 1)
+    
+    # generate confision matrix, rain no rain
+    print("#################### confusion matrixes ###############")
+          
+    for i , quantile in enumerate(quantiles):
+        print("Confusion matrx for the %s quantile" % quantile)
+        confusionMatrix(yTest,prediction[:,i])
+    
+    # plot interval predictions
+    plotIntervalPredictions(yTest, mean, 1)
+    
+    # get  the probability of detection
+    print("#################### POD ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_POD(prediction[:,i], yTest)))
+        
+    # get  the false alarm ratio
+    print("#################### FAR ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_FAR(prediction[:,i], yTest)))
+    
+    
+    # get the critical sucess index
+    print("#################### CSI ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_CSI(prediction[:,i], yTest)))
+    
+    
+    # get the bias
+    print("#################### bias ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_bias(prediction[:,i], yTest)))
+    
+    #print("the mean bias is %s" % calculate_bias(mean, yTest))
+    
+    # get the total MSE
+    print("#################### MSE ###############")
+    for i, quantile in enumerate(quantiles):
+        print("%s quantile: %s" %(quantile, calculate_tot_MSE(prediction[:,i], yTest)))
+    #print("the mean total MSE is %s" % calculate_tot_MSE(mean, yTest))
+    
+    # print the kvota of apriori mean to display how much is learnt
+    print("################## kvota ####################3")
+    print(get_apriori_mean_estimate_kvote(yTest,yTrain, mean))
+    print(get_apriori_mean_estimate_kvote_abs_mean(yTest,yTrain, mean))
+    
+    print("################## correlations ################")
+    #print("labelsize and corect 30 conf interval: %s" % get_correlation_labelsize_prediction(yTest, prediction))
+    print("distance between 5 quantile and true vaule and label size: %s" % get_correlation_MSE_labelsize(yTest, prediction))
+    print("same as above but for the a priori mean as predictior : %s" % get_correlation_MSEapriori_labelsize(yTest,yTrain, prediction))
+    print("correlation target prediction: %s" % correlation_target_prediction(yTest, prediction))
+    print("################# interval lengths #######")
+    print((prediction[:,-1]-prediction[:,0]).sum()/len(prediction))
+    
 
+def generate_all_results_CNN(prediction,mean,xTest, yTest,yTrain, quantiles):
+    import numpy as np
+    
+    # predict
+    #prediction = model.predict(xTest)
+    '''
+    # calculate the mean value
+    mean = np.zeros((xTest.shape[0],1))
+    for i in range(xTest.shape[0]):
+        
+        mean[i,0] = model.posterior_mean(xTest[i,:])
+    
+    '''
 
     # generate QQ plot
     generateQQPLot(quantiles, yTest, prediction)
@@ -559,11 +724,28 @@ def generate_all_results(model,xTest, yTest, quantiles):
     for i, quantile in enumerate(quantiles):
         print("%s quantile: %s" %(quantile, calculate_bias(prediction[:,i], yTest)))
     
-    print("the mean bias is %s" % calculate_bias(mean, yTest))
+    #print("the mean bias is %s" % calculate_bias(mean, yTest))
     
     # get the total MSE
     print("#################### MSE ###############")
     for i, quantile in enumerate(quantiles):
         print("%s quantile: %s" %(quantile, calculate_tot_MSE(prediction[:,i], yTest)))
     print("the mean total MSE is %s" % calculate_tot_MSE(mean, yTest))
+    
+    # print the kvota of apriori mean to display how much is learnt
+    print("################## kvota ####################3")
+    print(get_apriori_mean_estimate_kvote(yTest,yTrain, mean))
+    print(get_apriori_mean_estimate_kvote_abs_mean(yTest,yTrain, mean))
+    
+    
+    print("################## correlations ################")
+    #print("labelsize and corect 30 conf interval: %s" % get_correlation_labelsize_prediction(yTest, prediction))
+    #print("distance between 5 quantile and true vaule and label size: %s" % get_correlation_MSE_labelsize(yTest, prediction))
+    #print("same as above but for the a priori mean as predictior : %s" % get_correlation_MSEapriori_labelsize(yTest,yTrain, prediction))
+    print("correlation target prediction: %s" % correlation_target_prediction(yTest, prediction))
+    
+    print("################# interval lengths #######")
+    print((prediction[:,-1]-prediction[:,0]).sum()/len(prediction))
+    print("################# interval lengths #######")
+    print((prediction[:,-1]-prediction[:,0]).sum()/len(prediction))
     
