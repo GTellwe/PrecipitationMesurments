@@ -123,6 +123,62 @@ def getClosestFile(DATE, CHANNEL):
 
     #return '%s' % (file_before),'%s' % (files_for_hour[index_closest_file]),'%s' % (file_after), getMiddleTime(files_for_hour[np.argmin(date_diff[:,0])]) 
 
+def get_timestamp(file):
+    return getMiddleTime(file)
+def create_list_of_files(CHANNEL):
+    from datetime import datetime, timedelta
+    from linkedlist import SLinkedList, Node
+    import numpy as np
+    import pickle
+    
+    '''
+    function for creating a linked list with all the file name sorted by time
+    '''
+    
+    current_date = datetime(2017,8,1)
+    list1 = SLinkedList()
+    
+    files_for_hour = list(map(lambda x : x.name, getFilesForHour(current_date)))
+   
+    files_for_hour = [file for file in files_for_hour if file.split('_')[1][-3:] == CHANNEL ]
+  
+    list1.headval = Node(getMiddleTime(files_for_hour[0]),files_for_hour[0])
+
+    
+    files = []
+    i =0
+    while current_date < datetime(2020,4,1):
+        files_for_hour = list(map(lambda x : x.name, getFilesForHour(current_date)))
+   
+        files_for_hour = [file for file in files_for_hour if file.split('_')[1][-3:] == CHANNEL ]
+        if len(files_for_hour) == 0:
+            current_date += timedelta(hours=1)
+            #print('bull')
+            continue
+        
+        files =files + files_for_hour
+            
+        current_date += timedelta(hours=1)
+        if i % 100 == 0:
+            print(current_date)
+        i+=1
+    
+
+    files.sort(key=get_timestamp)
+        
+    with open(CHANNEL+'_files.txt', "wb") as fp:   #Pickling
+        pickle.dump(files, fp)     
+    
+
+
+def read_linked_list(CHANNEL):
+    import pickle
+    with open(CHANNEL+'_files.txt', "rb") as fp:   # Unpickling
+        return pickle.load(fp)
+       
+        
+        
+
 def downloadFile(FILE):
     '''
     Downloads FILE and saves it in the data folder
@@ -270,7 +326,117 @@ def getIndexOfGeoDataMatricFromLongitudeLatitude(longitude, latitude,proj, x_dat
     return y_index, x_index, np.sqrt((longitude-lons)*(longitude-lons)+(latitude-lats)*(latitude-lats))
     #return 50, 50, 0
     
+def getGEODataTimeSeries(GPM_data, channel):
+    from netCDF4 import Dataset
+    import numpy as np
+    import time
+    from datetime import datetime
+    from pyproj import Proj
     
+    filePaths = []
+    newFileIndexes = []
+    previousFileName = ""
+    start_time = time.time()
+    files = read_linked_list(channel)
+   
+    j = 5
+
+    for i in range(len(GPM_data[:,2])):
+        
+        
+        currentTime = convertTimeStampToDatetime(GPM_data[i,2])
+        current_distance = np.abs((getMiddleTime(files[j])-currentTime).total_seconds())
+        
+        if i % 100000 == 0:
+            print(i)
+        # get the closest file from the linked list
+        
+        distance_forward = np.abs((getMiddleTime(files[j+1])-currentTime).total_seconds())
+        #print('first_forward_distance')
+        #print(getMiddleTime(files[j+1]))
+        #print(distance_forward)
+        if current_distance < distance_forward:
+            filePath = [files[j-1],files[j],files[j+1]]
+            continue
+        j+=1
+        
+        while True:
+            
+            current_distance = np.abs((getMiddleTime(files[j])-currentTime).total_seconds())
+            distance_forward = np.abs((getMiddleTime(files[j+1])-currentTime).total_seconds())
+            
+            if current_distance < distance_forward:
+                filePath = [files[j-1],files[j],files[j+1]]
+                break
+            else:
+                j+=1
+                
+           
+        if filePath[1] != previousFileName:
+            newFileIndexes.append(i)
+            filePaths.append(filePath)
+            previousFileName = filePath[1]
+    print(len(filePaths))
+        
+    end_time = time.time()
+    print("time for getting file paths %s" % (end_time-start_time))
+    # iterate through all unique file names
+    nmb_files = 3
+    xData = np.zeros((len(GPM_data),nmb_files,receptiveField,receptiveField))
+    times = np.zeros((len(GPM_data),nmb_files))
+    distance = np.zeros((len(GPM_data),nmb_files))
+    
+    lons = []
+    lats = []
+    sat_h = 0
+    sat_lon = 0
+    sat_sweep = 0
+    x_data = []
+    y_data =  []
+    
+    for i in range(len(newFileIndexes)):
+        
+        # closest file
+        for k in range(3):
+            
+            filePATH = filePaths[i][k]
+            FILE = 'data/'+filePaths[i][k].split('/')[-1]
+            if i % 100 == 0:
+                print(i/len(newFileIndexes))
+           
+            downloadFile(filePATH)
+            #filePATH, prev_sat_h = 0, prev_sat_lon = 0, prev_sat_sweep = 0, prev_x = [], prev_y = [], prev_lons =[], prev_lats = []
+            #start_time = time.time()
+            lons,lats,C,rad, x_data, y_data = extractGeoData(filePATH,sat_h,sat_lon,sat_sweep, x_data, y_data,lons,lats)
+            #end_time = time.time()
+            #print("time for extractng geo data %s" % (end_time-start_time))
+            sat_h = C['goes_imager_projection'].perspective_point_height
+            
+            # Satellite longitude
+            sat_lon = C['goes_imager_projection'].longitude_of_projection_origin
+            
+            # Satellite sweep
+            sat_sweep = C['goes_imager_projection'].sweep_angle_axis
+           
+            if i == len(newFileIndexes)-1:
+                endIndex = len(GPM_data)
+            else:
+                endIndex = newFileIndexes[i+1]
+            
+            
+            #start_time = time.time()
+            proj = Proj(proj='geos', h=sat_h, lon_0=sat_lon, sweep=sat_sweep)
+            for j in range(newFileIndexes[i],endIndex):
+                #start_time = time.time()
+                xIndex, yIndex , distance[j,k]= getIndexOfGeoDataMatricFromLongitudeLatitude(GPM_data[j,0], GPM_data[j,1], proj, x_data,y_data)
+                #end_time = time.time()
+                #print(" time for getting index %s" %(end_time -start_time))
+                
+                #start_time = time.time()
+                xData[j,k,:,:], times[j,k] = rad.data[xIndex-int(receptiveField/2):xIndex+int(receptiveField/2),yIndex-int(receptiveField/2):yIndex+int(receptiveField/2)], (getMiddleTime(FILE)-datetime(1980,1,6)).total_seconds()
+             
+    
+    return xData[:,:,:,:], times[:,:], distance[:,:]   
 def getGEOData(GPM_data, channel):
     from netCDF4 import Dataset
     import numpy as np
@@ -288,16 +454,76 @@ def getGEOData(GPM_data, channel):
     newFileIndexes = []
     previousFileName = ""
     start_time = time.time()
- 
+    files = read_linked_list(channel)
    
-    middleTime = datetime(1980,1,1)
-    
+    j = 5
+    #found = True
     for i in range(len(GPM_data[:,2])):
+        
+        
         currentTime = convertTimeStampToDatetime(GPM_data[i,2])
-        if(np.abs((currentTime-middleTime).total_seconds()) > 600):
+        current_distance = np.abs((getMiddleTime(files[j])-currentTime).total_seconds())
+        #print('Current_time')
+        #print(currentTime)
+        #print(getMiddleTime(files[j]))
+        #print(current_distance)
+        #print('Current Time')
+        #print(currentTime)
+        #if(np.abs((currentTime-middleTime).total_seconds()) > 450):
             
             #file_path_before, filePath, file_path_after, middleTime = getClosestFile(currentTime, channel)
-            filePath, middleTime = getClosestFile(currentTime, channel)
+        if i % 100000 == 0:
+            print(i)
+        # get the closest file from the linked list
+        
+        distance_forward = np.abs((getMiddleTime(files[j+1])-currentTime).total_seconds())
+        #print('first_forward_distance')
+        #print(getMiddleTime(files[j+1]))
+        #print(distance_forward)
+        if current_distance < distance_forward:
+            filePath = files[j]
+            continue
+        j+=1
+        
+        while True:
+            
+            current_distance = np.abs((getMiddleTime(files[j])-currentTime).total_seconds())
+            distance_forward = np.abs((getMiddleTime(files[j+1])-currentTime).total_seconds())
+            #print('while: current time')
+            #print(getMiddleTime(files[j]))
+            #print(current_distance)
+            #print('while: forward time')
+            #print(getMiddleTime(files[j+1]))
+            #print(distance_forward)
+            if current_distance < distance_forward:
+                filePath = files[j]
+                #print(getMiddleTime(files[j]))
+                #print(getMiddleTime(files[j+1]))
+                #print(j)
+                #print(distance_forward)
+                #print(current_distance)
+                #found = False
+                break
+            else:
+                j+=1
+                
+            
+            '''   
+            new_distance_backward = np.abs((getMiddleTime(files[j-1])-currentTime).total_seconds())
+            
+            if new_distance < current_distance_forward:
+                current_distance = new_distance
+                j+=1
+            elif   new_distance < current_distance_backward:
+                current_distance = new_distance
+                j+=1 
+            else:
+                filePath = files[j]
+                #middleTime = node.date 
+                break
+            '''
+        
+        #filePath, middleTime = getClosestFile(currentTime, channel)
             #print(file_path_before)
             #print(filePath)
             #print(file_path_after)
@@ -309,6 +535,7 @@ def getGEOData(GPM_data, channel):
             #file_paths_before.append(file_path_before)
             #file_paths_after.append(file_path_after)
             previousFileName = filePath
+    print(len(filePaths))
         
     end_time = time.time()
     print("time for getting file paths %s" % (end_time-start_time))
@@ -610,6 +837,228 @@ def getGPMData(start_DATE, maxDataSize, data_per_GPM_pass, resolution):
         print(DATE)
       
     return gpm_data
+def getGPMDataImage(start_DATE, maxDataSize):
+    
+    '''
+        retruns GPM data for the day provided. The data is in form of an array
+        with each entry having attributes:
+            1: position
+            2: time
+            3: rain amount
+    '''
+    
+    import h5py
+    import numpy as np
+    from datetime import datetime, timedelta
+    import random
+    from scipy.interpolate import griddata
+    days_missing_in_GEO = [str(datetime(2017,8,3)),
+                           str(datetime(2017,9,26)),
+                           str(datetime(2017,9,27)),
+                           str(datetime(2017,9,28)),
+                           str(datetime(2017,9,29)),
+                           str(datetime(2017,11,30)),
+                           str(datetime(2017,12,1)),
+                           str(datetime(2017,12,2)),
+                           str(datetime(2017,12,3)),
+                           str(datetime(2017,12,4)),
+                           str(datetime(2017,12,5)),
+                           str(datetime(2017,12,6)),
+                           str(datetime(2017,12,7)),
+                           str(datetime(2017,12,8)),
+                           str(datetime(2017,12,9)),
+                           str(datetime(2017,12,10)),
+                           str(datetime(2017,12,11)),
+                           str(datetime(2017,12,12)),
+                           str(datetime(2017,12,13)),
+                           str(datetime(2017,12,14)),
+                           str(datetime(2018,1,28)),
+                           str(datetime(2018,2,21)),
+                           str(datetime(2018,2,22)),
+                           str(datetime(2018,5,6)),
+                           str(datetime(2019,2,25)),
+                           str(datetime(2019,4,15)),
+                           str(datetime(2019,5,30)),
+                           str(datetime(2019,6,27)),
+                           str(datetime(2019,6,28)),
+                           str(datetime(2019,11,6))
+                           ]
+    
+    pixel_width = 40
+    lat_width = 1.8
+    lon_width = 1.8
+    gpm_data_images = np.zeros((maxDataSize,pixel_width, pixel_width))
+    gpm_data_pos_time = np.zeros((maxDataSize,3))
+   
+    
+    # get the files for the specific day
+    
+    DATE = start_DATE
+    index = 0
+    while index < maxDataSize:
+        
+        
+        if str(DATE) in days_missing_in_GEO:
+            DATE += timedelta(days=1)
+            continue
+        
+        files = getGPMFilesForSpecificDay(DATE)
+        
+        for FILENAME in files:
+            # download the gpm data
+            downloadGPMFile(FILENAME,DATE)
+            
+            # read the data
+            try:
+                path =  'data/'+FILENAME
+                f = h5py.File(path, 'r')
+                #dim_1 = f['NS']['surfPrecipTotRate'][:].shape[0]
+                #dim_2 = f['NS']['surfPrecipTotRate'][:].shape[1]
+                precepTotRate = f['NS']['surfPrecipTotRate'][:]
+                longitude = f['NS']['Longitude'][:]
+                latitude = f['NS']['Latitude'][:]
+                time = f['NS']['navigation']['timeMidScan'][:]
+            except:
+                continue
+            
+            # remove null data 
+            '''
+            indexes = np.where(np.abs(precepTotRate) < 200)
+            precepTotRate = precepTotRate[indexes]
+            longitude = longitude[indexes]
+            latitude = latitude[indexes]
+            time = time[indexes]
+            '''
+            
+            import matplotlib.pyplot as plt
+            
+            
+            max_lat = latitude.max()
+            
+            
+            
+            #current_index = 0
+            #image_height = 35
+            #import copy
+            #nmb_images = int(dim1/)
+            #import copy
+            
+            #tmp_latitude =copy.deepcopy(latitude) 
+            #null_indexes = np.argwhere(tmp_latitude<-5000)
+            #tmp_latitude[null_indexes[:,0],null_indexes[:,1]]= 5000
+            #tmp_longitude = copy.deepcopy(longitude)
+            #null_indexes = np.argwhere(tmp_longitude<-5000)
+            #tmp_longitude[null_indexes[:,0],null_indexes[:,1]]= 5000
+            
+            for i in range(100):
+                
+                '''
+                min_lat = tmp_latitude[current_index:current_index+image_height,:].min()
+                max_lat = latitude[current_index:current_index+image_height,:].max()
+                min_lon = tmp_longitude[current_index:current_index+image_height,:].min()
+                max_lon = longitude[current_index:current_index+image_height,:].max()
+                '''
+                
+                min_lat = max_lat-lat_width
+                indexes_lat = np.argwhere((latitude > min_lat) & (latitude < max_lat))
+            
+                if len(indexes_lat)<2000:
+                    break
+                    
+                max_lon = longitude[indexes_lat[:,0], indexes_lat[:,1]].max()
+                min_lon = longitude[indexes_lat[:,0], indexes_lat[:,1]].min()
+                
+                #print(indexes_lat.shape)
+                #print(latitude[indexes_lat[:,0],indexes_lat[:,1]].shape)
+                
+                #print(min_lat)
+                midpoint = [max_lon-np.abs(min_lon-max_lon)/2,max_lat-np.abs(min_lat-max_lat)/2]
+                #print(midpoint)
+                extent1 = [midpoint[0]-lon_width/2,midpoint[0]+lon_width/2,midpoint[1]-lat_width/2,midpoint[1]+lat_width/2]
+                #print(extent1)
+                #print(extent1)
+                #plt.scatter(latitude[indexes_lat])
+                #plt.show()
+                #indexes_lat = np.argwhere((latitude[current_index:current_index+image_height,:] > midpoint[1]-lat_width) & (latitude[current_index:current_index+image_height,:] < midpoint[1]+lat_width) )
+                indexes = np.argwhere((longitude > extent1[0]) & (longitude < extent1[1]) & (latitude > extent1[2]) & (latitude < extent1[3]) &(precepTotRate> -5000))
+                if len(indexes) <1000:
+                    max_lat= min_lat
+                    continue
+                #print(indexes_long.shape)
+                #indexes = indexes_long
+                #indexes = np.array([value for value in indexes_lat if value in indexes_long])
+                # remove null values
+                #print(indexes.shape)
+                #tmp_non_null = np.where(precepTotRate[indexes[:,0], indexes[:,1]] < 200)[0]
+                #print(tmp_non_null.shape)
+                #indexes = indexes[tmp_non_null,:]
+                
+                
+                #print(indexes.shape)
+                #print(latitude[indexes[:,0],indexes[:,1]].shape)
+                points =np.zeros((len(indexes),2)) 
+                points[:,0] =longitude[indexes[:,0], indexes[:,1]]
+                points[:,1]= latitude[indexes[:,0], indexes[:,1]]
+                values = precepTotRate[indexes[:,0], indexes[:,1]]
+                #print(values.shape)
+                #print(points.shape)
+                grid_x, grid_y = np.mgrid[extent1[0]:extent1[1]:40j, extent1[2]:extent1[3]:40j]
+                
+                grid_z0 = griddata(points,values, (grid_x, grid_y), method='linear', fill_value = 0)
+                gpm_data_images[index,:,:] = np.rot90(grid_z0)
+                gpm_data_pos_time[index,2] = time[indexes[0,0]]
+                gpm_data_pos_time[index,0] = midpoint[0]
+                gpm_data_pos_time[index,1] = midpoint[1]
+                index+=1
+                #plt.scatter(points[:,0], points[:,1], c = values)
+                #plt.show()
+                #plt.scatter(grid_x.flatten(),grid_y.flatten())
+                #plt.show()
+                #plt.imshow(np.rot90(grid_z0))
+                #plt.show()
+                #current_index +=image_height
+                #print(midpoint)
+                max_lat = min_lat
+                if index >= maxDataSize:
+                    break
+                
+            
+            
+            #index1 = min(maxDataSize,index+len(precepTotRate),index+data_per_GPM_pass)
+        
+            
+            
+            #indexes = random.sample(range(0, len(precepTotRate)), index1-index)
+       
+            
+            #print(chosen_prec)
+            #data[index:index1,0] = precepTotRate[chosen_indexes]
+            #data[index:index1,0] = chosen_prec
+            
+            '''
+            pos_time_data[index:index1,0,:,:] = longitude[chosen_indexes]
+            pos_time_data[index:index1,0,:,:] = latitude[chosen_indexes]
+            pos_time_data[index:index1,0,:,:] = time[chosen_indexes]
+            '''
+            
+            
+            #gpm_data[index:index1,0] = longitude[indexes]
+            #gpm_data[index:index1,1] = latitude[indexes]
+            #gpm_data[index:index1,2] = time[indexes]
+            #gpm_data[index:index1,3] = precepTotRate[indexes]
+            
+            #index = index1
+            print(index)
+            if index >= maxDataSize:
+                break
+            
+           
+                
+        
+        DATE += timedelta(days=1)
+        print(DATE)
+      
+    return gpm_data_images, gpm_data_pos_time
    
 def convertTimeStampToDatetime(timestamp):
     from datetime import datetime, timedelta
@@ -631,7 +1080,7 @@ def getTrainingData(dataSize, nmb_GPM_pass, GPM_resolution):
     
     xData = np.zeros((dataSize,2,receptiveField,receptiveField))
     times = np.zeros((dataSize,3))
-    yData = np.zeros((dataSize,1,7,7))
+    #yData = np.zeros((dataSize,40,40))
     distance = np.zeros((dataSize,2))
     
     
@@ -646,8 +1095,9 @@ def getTrainingData(dataSize, nmb_GPM_pass, GPM_resolution):
             3: rain amount
     '''
     start_time = time.time()
-    GPM_data= getGPMData(datetime.datetime(2017,8,1),dataSize,nmb_GPM_pass,GPM_resolution)
-    
+    GPM_image, GPM_pos_time = getGPMDataImage(datetime.datetime(2017,8,5), dataSize)
+    #GPM_data= getGPMData(datetime.datetime(2017,8,5),dataSize,nmb_GPM_pass,GPM_resolution)
+    times[:,0] = GPM_pos_time[:,2]
     end_time = time.time()
     
     print("time for collecting GPM Data %s" % (end_time-start_time))
@@ -656,27 +1106,27 @@ def getTrainingData(dataSize, nmb_GPM_pass, GPM_resolution):
     '''
     start_time = time.time()
     
-    tmp_x, tmp_time, tmp_distance =  getGEOData(GPM_data,'C13')
+    tmp_x, tmp_time, tmp_distance =  getGEOData(GPM_pos_time,'C13')
     xData[:,0,:,:] =tmp_x
     times[:,1] =tmp_time
     distance[:,0] =tmp_distance
     
     #xData[:,1,:,:], times[:,2], distance[:,1] = getGEOData(np.reshape(GPM_pos_time_data, (GPM_pos_time_data.shape[0]*GPM_pos_time_data.shape[2]*GPM_pos_time_data.shape[3],GPM_pos_time_data.shape[1])),'C08')
-    tmp_x, tmp_time, tmp_distance =  getGEOData(GPM_data,'C08')
+    tmp_x, tmp_time, tmp_distance =  getGEOData(GPM_pos_time,'C08')
     xData[:,1,:,:] = tmp_x
     times[:,2] = tmp_time
     distance[:,1] = tmp_distance
     
-    yData = GPM_data[:,3]
+    yData = GPM_image
     end_time = time.time()
     
     print("time for collecting GEO Data %s" % (end_time-start_time))
     import numpy as np
     
-    np.save(folder_path+'/trainingData/xDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'interval_3.npy', xData)   
-    np.save(folder_path+'/trainingData/yDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'interval_3.npy', yData)   
-    np.save(folder_path+'/trainingData/timesC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'interval_3.npy', times)
-    np.save(folder_path+'/trainingData/distanceC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'interval_3.npy', distance)  
+    np.save(folder_path+'/trainingData/xDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'timeSeries.npy', xData)   
+    np.save(folder_path+'/trainingData/yDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'timeSeries.npy', yData)   
+    np.save(folder_path+'/trainingData/timesC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'timeSeries.npy', times)
+    np.save(folder_path+'/trainingData/distanceC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'timeSeries.npy', distance)  
     
     
     return xData, yData, times, distance
@@ -703,7 +1153,7 @@ def preprocessDataForTraining(xData, yData, times, distance):
 
     # reshape data for the QRNN
     newXData = np.reshape(xData,(xData.shape[0],xData.shape[1]*xData.shape[2]*xData.shape[3]))
-    newYData = np.reshape(yData,(len(yData),1))
+    #newYData = np.reshape(yData,(len(yData),1))
     
     #scaler1.fit(newXData)
     #newXData = scaler1.transform(newXData)
@@ -731,7 +1181,7 @@ def preprocessDataForTraining(xData, yData, times, distance):
     
     # scale the data with unit variance and and between 0 and 1 for the labels
     
-    return newXData, newYData
+    return newXData
 def get_single_GPM_pass(DATE): 
     import numpy as np
     import h5py
@@ -773,16 +1223,42 @@ def load_data():
     yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
     times = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
     distance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
-    #xData = xData[:,:,4:25,4:25]
+    #xData = xData[:,:,6:22,6:22]
+    
     '''
-    xData =np.load(folder_path+'/trainingData/xDataC8C13S700000_R28_P400GPM_res3interval_3.npy')
-    yData = np.load(folder_path+'/trainingData/yDataC8C13S700000_R28_P400GPM_res3interval_3.npy')
-    times = np.load(folder_path+'/trainingData/timesC8C13S700000_R28_P400GPM_res3interval_3.npy')
-    distance = np.load(folder_path+'/trainingData/distanceC8C13S700000_R28_P400GPM_res3interval_3.npy') 
+    xData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
+    yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
+    times = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
+    distance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
+    #xData = xData[:,:,6:22,6:22]
     '''
+    '''
+    xData =np.load(folder_path+'/trainingData/xDataC8C13S6200_R128_P1400GPM_res3timeSeries.npy')
+    yData = np.load(folder_path+'/trainingData/yDataC8C13S6200_R128_P1400GPM_res3timeSeries.npy')
+    times = np.load(folder_path+'/trainingData/timesC8C13S6200_R128_P1400GPM_res3timeSeries.npy')
+    distance = np.load(folder_path+'/trainingData/distanceC8C13S6200_R128_P1400GPM_res3timeSeries.npy') 
+    '''
+    '''
+    xData =np.load(folder_path+'/trainingData/xDataC8C13S6200_R100_P1400GPM_res3interval_3.npy')
+    yData = np.load(folder_path+'/trainingData/yDataC8C13S6200_R100_P1400GPM_res3interval_3.npy')
+    times = np.load(folder_path+'/trainingData/timesC8C13S6200_R100_P1400GPM_res3interval_3.npy')
+    distance = np.load(folder_path+'/trainingData/distanceC8C13S6200_R100_P1400GPM_res3interval_3.npy') 
+    '''
+    '''
+    xData =np.load(folder_path+'/trainingData/xDataC8C13S320000_R28_P200GPM_res3timeSeries.npy')
+    yData = np.load(folder_path+'/trainingData/yDataC8C13S320000_R28_P200GPM_res3timeSeries.npy')
+    times = np.load(folder_path+'/trainingData/timesC8C13S320000_R28_P200GPM_res3timeSeries.npy')
+    distance = np.load(folder_path+'/trainingData/distanceC8C13S320000_R28_P200GPM_res3timeSeries.npy') 
+    '''
+    '''
+    xData =np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')
+    yData = np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')
+    times = np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')
+    distance = np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')  
+    '''    
     # remove nan values
     
-        
+    
     nanValues =np.argwhere(np.isnan(xData)) 
     xData = np.delete(xData,np.unique(nanValues[:,0]),0)
     yData = np.delete(yData,np.unique(nanValues[:,0]),0)
@@ -796,11 +1272,13 @@ def load_data():
     times = times[indexes,:]
     distance = distance[indexes,:]
     '''
+    print(xData.shape)
+    print(yData.shape)
     # get the mean of the yData
     #tmp_yData = np.zeros((len(yData),1))
     #for i in range(len(yData)):
     #    tmp_yData[i,0] = yData[i]
-    yData = np.reshape(yData[:,3,3], (len(yData),1))
+    #yData = np.reshape(yData[:,3,3], (len(yData),1))
     # narrow the field of vision
     #xData = xData[:,:,9:19,9:19]
     
@@ -817,14 +1295,20 @@ def load_data():
     #mean2 = np.mean(xData[:,1,:,:], axis = 0,keepdims = True)
     #std1 = np.std(xData[:,0,:,:], axis = 0,keepdims = True)
     #std2 = np.std(xData[:,1,:,:], axis = 0,keepdims = True)
-    max1 = xData[:,0,:,:].max()
-    max2 = xData[:,1,:,:].max()
-    xData[:,0,:,:] = (xData[:,0,:,:])/max1
-    xData[:,1,:,:] = (xData[:,1,:,:])/max2
+    #max_values = []
     
-    tmpXData = np.zeros((len(xData),28,28,2))
-    tmpXData[:,:,:,0] = xData[:,0,:,:]
-    tmpXData[:,:,:,1] = xData[:,1,:,:]
+    tmpXData = np.zeros((len(xData),28,28,xData.shape[1]))
+    
+    for i in range(xData.shape[1]):
+        #mean1 = np.mean(xData[:,i,:,:], axis = 0,keepdims = True)
+        #std1 = np.std(xData[:,i,:,:], axis = 0,keepdims = True)
+        #tmpXData[:,:,:,i] = (xData[:,i,:,:]-mean1)/std1
+    
+        tmpXData[:,:,:,i] = (xData[:,i,:,:]-xData[:,i,:,:].min())/(xData[:,i,:,:].max()-xData[:,i,:,:].min())
+    
+    #tmpXData = np.zeros((len(xData),28,28,2))
+    #tmpXData[:,:,:,0] = xData[:,0,:,:]
+    #tmpXData[:,:,:,1] = xData[:,1,:,:]
     '''
     for i in range(len(xData)):
         if i % 10000 == 0:
@@ -837,60 +1321,21 @@ def load_data():
         tmpXData[i,:,31,:] = np.full((28,2),(times[i,0]-times[i,2])/1000)
     '''    
     xData = tmpXData
-   # yData = (yData-np.mean(yData))/np.std(yData)
-   # yData = np.sqrt(yData)
-    #newXData, newYData = preprocessDataForTraining(xData, yData, times, distance)
+    # yData = (yData-np.mean(yData))/np.std(yData)
+    # yData = np.sqrt(yData)
+    #newXData = preprocessDataForTraining(xData, yData, times, distance)
+    
+    return xData,yData
 
-    return xData, yData, max1, max2
-
-def load_data_training_data(max1, max2):
+def preprocessData(xData, yData, model, scale):
     import numpy as np
-    
     '''
-    xData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
-    yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
-    times = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
-    distance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
+    INPUT: xData has dimensions (nmb_samples,channels, image_height, image_width)
     '''
-    
-    xData =np.load(folder_path+'/trainingData/xDataC8C13S1000000_R28_P1400GPM_res3interval_3.npy')
-    yData = np.load(folder_path+'/trainingData/yDataC8C13S1000000_R28_P1400GPM_res3interval_3.npy')
-    times = np.load(folder_path+'/trainingData/timesC8C13S1000000_R28_P1400GPM_res3interval_3.npy')
-    distance = np.load(folder_path+'/trainingData/distanceC8C13S1000000_R28_P1400GPM_res3interval_3.npy') 
-    #xData = xData[:,:,4:25,4:25]
-    # remove nan values
-    nanValues =np.argwhere(np.isnan(xData)) 
-    xData = np.delete(xData,np.unique(nanValues[:,0]),0)
-    yData = np.delete(yData,np.unique(nanValues[:,0]),0)
-    times = np.delete(times,np.unique(nanValues[:,0]),0)
-    distance = np.delete(distance,np.unique(nanValues[:,0]),0)
-
-    # get the mean of the yData
-    tmp_yData = np.zeros((len(yData),1))
-    for i in range(len(yData)):
-        tmp_yData[i,0] = yData[i]
-    
-    yData = tmp_yData    
-    # narrow the field of vision
-    #xData = xData[:,:,9:19,9:19]
-    
-    # select the data within time limit
-    '''
-    indexes = np.where(np.abs(times[:,0]-times[:,1])<200)[0]
-    xData = xData[indexes,:,:,:]
-    yData = yData[indexes]
-    times = times[indexes]
-    distance = distance[indexes]
-    '''
-    
-    xData[:,0,:,:] = (xData[:,0,:,:])/max1
-    xData[:,1,:,:] = (xData[:,1,:,:])/max2
-    
-    tmpXData = np.zeros((len(xData),28,28,2))
-    tmpXData[:,:,:,0] = xData[:,0,:,:]
-    tmpXData[:,:,:,1] = xData[:,1,:,:]
-    
-    xData = tmpXData
-    #newXData, newYData = preprocessDataForTraining(xData, yData, times, distance)
-
-    return xData, yData
+    tmpXData = np.zeros((len(xData),xData.shape[2],xData.shape[3],xData.shape[1]))
+    if model =='CNN':
+        for i in range(xData.shape[1]):
+            if scale =='01':
+                tmpXData[:,:,:,i] = (xData[:,i,:,:]-xData[:,i,:,:].min())/(xData[:,i,:,:].max()-xData[:,i,:,:].min()) 
+                
+    return tmpXData, yData

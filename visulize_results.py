@@ -4,15 +4,17 @@ Created on Fri Feb  7 16:10:20 2020
 
 @author: gustav
 """
-def generateQQPLot(quantiles, yTest, prediction):
+no_rain_value = 0
+def generateQQPLot(quantiles, yTest, prediction, title = ' '):
     import numpy as np
     rain_threshold = 0.0001
     q = np.zeros((len(quantiles),1))
-    import matplotlib.pyplot as plt  
+    import matplotlib.pyplot as plt 
+    
     for i in range(len(quantiles)):
         nmb = 0
         for j in range(yTest.shape[0]):
-            if prediction[j,i] > yTest[j,0]:
+            if prediction[j,i] > yTest[j]:
                 #if yTest[j,0] == 0 and prediction[j,i] > rain_threshold:
                     nmb +=1
         
@@ -21,8 +23,11 @@ def generateQQPLot(quantiles, yTest, prediction):
         
     
     x = np.linspace(0, 1, 100)
-    plt.plot(quantiles,q[:,0])
-    plt.plot(x,x)
+    plt.plot(quantiles,q[:,0], color = 'black')
+    plt.plot(x,x, linestyle = ':', color = 'black')
+    plt.ylabel('Quantiles')
+    plt.xlabel('Observed frequency')
+    plt.title(title)
     plt.savefig('qq.png')
 def generate_qqplot_for_intervals(quantiles, yTest, prediction, sigma):
     import numpy as np
@@ -129,6 +134,7 @@ def generateRainfallImage(model,data_file_paths):
     half_field_of_vision = 4
     test = np.zeros((im_width*im_width,len(data_file_paths),field_of_vision,field_of_vision))
     channel =0
+    
     for file in data_file_paths:
         #downloadFile(file)
         lons,lats,C,rad, x_data, y_data = extractGeoData(file)
@@ -182,43 +188,82 @@ def generateRainfallImage(model,data_file_paths):
 
     plt.show()
 
-def plotGPMData(DATE, extent):
+def plotGPMData(DATE):
     import numpy as np
     from scipy.interpolate import griddata
     import xarray
     import cartopy.crs as ccrs
     import matplotlib.pyplot as plt
-    
-    fig = plt.figure(figsize=(15, 12))
-    
+    import datetime
+    from data_loader import get_single_GPM_pass
+    from data_loader import convertTimeStampToDatetime
+    from data_loader import getGEOData
+    from matplotlib.colors import LogNorm
+    extent = [-70, -50, -12, 5]
+    fig = plt.figure(figsize=(20, 20))
+
+
     # Generate an Cartopy projection
     pc = ccrs.PlateCarree()
-    ax = fig.add_subplot(1, 1, 1, projection=pc)
-    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    #fig.tight_layout()
+    #fig.subplots_adjust(bottom = 0.60, left = 0.0, right = 0.8)
+    #fig, ax = plt.subplots()
+    axes=[]
+    axes.append(fig.add_subplot(1, 1, 1, projection=pc))
+    axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
     
     
     
-    ax.coastlines(resolution='50m', color='black', linewidth=0.5)
+    axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
     #ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
-    ax.add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+    axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+    axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+    axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
     
     
-    dataSize = 10000
-    GPM_data = getGPMData(DATE,dataSize)
     
-    extent1  = [min(GPM_data[:,1]),max(GPM_data[:,1]),min(GPM_data[:,2]),max(GPM_data[:,2])]
+    
+    perc_tot_rate, long, lat, time = get_single_GPM_pass(DATE)
+    #print(time)
+    GPM_data = np.zeros((len(perc_tot_rate),4))
+    GPM_data[:,3] = perc_tot_rate
+    GPM_data[:,0] = long
+    GPM_data[:,1] = lat
+    GPM_data[:,2] = time
+    
+    extent1  = [min(long),max(long),min(lat),max(lat)]
     grid_x, grid_y = np.mgrid[extent1[0]:extent1[1]:200j, extent1[2]:extent1[3]:200j]
-    points = GPM_data[:,1:3]
-    values = GPM_data[:,0]
-    print(values.max())
-    upper_threshold = 10
-    indexPosList = [ i for i in range(len(values)) if values[i] >upper_threshold]
+    points = np.zeros((len(lat),2))
+    points[:,0] = long
+    points[:,1] = lat
+    values = perc_tot_rate
+    #print(grid_x)
+   # print(values.max())
+    #upper_threshold = 20
+    #indexPosList = [ i for i in range(len(values)) if values[i] >upper_threshold]
     #print(indexPosList)
-    values[indexPosList] = upper_threshold
+    #values[indexPosList] = upper_threshold
     #print(values.max())
-    grid_z0 = griddata(points,values, (grid_x, grid_y), method='linear')
-    ax.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
-    #plt.colorbar()
+    
+    
+    min_val = 0.1
+    max_val = max(values)
+    inds = np.where(values > min_val)[0]
+    #grid_z0 = griddata(points,values, (grid_x, grid_y), method='linear')
+    #im = ax.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
+    im1 = axes[-1].scatter(long[inds], lat[inds], c = values[inds], s = 1, cmap='jet',
+                       norm = LogNorm(vmin=0.1, vmax = max_val)) 
+    axes[-1].set_title('DPR', fontsize = 20)
+    #plt.colorbar(im, ax=ax)
+    
+    
+    cbar = fig.colorbar(im1,ax = axes, shrink = 0.79, pad = 0.025,
+                   ticks = [min_val,0.5,1,5,10,25, max_val])
+    cbar.ax.set_yticklabels([str(min_val),'0.5','1','5','10','25',str(100)])
+    cbar.set_label("Rain rate (mm/h)", fontsize = 20)
+    cbar.ax.tick_params(labelsize=20)
+    
+    plt.show()
     #print(np.nan_to_num(grid_z0).max())
     
 def plotGOESData(FILE, extent):
@@ -341,7 +386,8 @@ def plotGOESData(FILE, extent):
     
     plt.show()
 
-def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
+def plot_predictions_and_labels(model,DATE, max1, max2,min1, min2):
+    
     import numpy as np
     from scipy.interpolate import griddata
     import xarray
@@ -351,46 +397,77 @@ def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
     from data_loader import get_single_GPM_pass
     from data_loader import convertTimeStampToDatetime
     from data_loader import getGEOData
+    from matplotlib.colors import LogNorm
     extent = [-70, -50, -10, 2]
-    fig = plt.figure(figsize=(30, 24))
-    
+    fig = plt.figure(figsize=(30, 30))
+    axes = []
     # Generate an Cartopy projection
     pc = ccrs.PlateCarree()
-    ax = fig.add_subplot(6, 1, 1, projection=pc)
-    ax.set_extent(extent, crs=ccrs.PlateCarree())
+    fig.tight_layout()
+    fig.subplots_adjust(bottom = 0.60, left = 0.0, right = 0.8)
+    axes.append(fig.add_subplot(2, 3, 1, projection=pc))
+    axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
     
     
     
-    ax.coastlines(resolution='50m', color='black', linewidth=0.5)
+    axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
     #ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
-    ax.add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+    axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+    axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+    axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
+    
     
     
     
     perc_tot_rate, long, lat, time = get_single_GPM_pass(DATE)
+    #print(time)
     GPM_data = np.zeros((len(perc_tot_rate),4))
-    GPM_data[:,0] = perc_tot_rate
-    GPM_data[:,1] = long
-    GPM_data[:,2] = lat
-    GPM_data[:,3] = time
+    GPM_data[:,3] = perc_tot_rate
+    GPM_data[:,0] = long
+    GPM_data[:,1] = lat
+    GPM_data[:,2] = time
     receptiveField = 28
     dataSize = len(perc_tot_rate)
-    xData = np.zeros((dataSize,2,receptiveField,receptiveField))
+    xData = np.zeros((dataSize,receptiveField,receptiveField,2))
     times = np.zeros((dataSize,3))
     yData = np.zeros((dataSize,1))
     distance = np.zeros((dataSize,2))
-   
+    
     times[:,0] = time
-    xData[:,0,:,:], times[:,1], distance[:,0] = getGEOData(GPM_data,'C13')
-    xData[:,0,:,:] = (xData[:,0,:,:]-mean1)/std1
+    xData[:,:,:,0], times[:,1], distance[:,0] = getGEOData(GPM_data,'C13')
+    xData[:,:,:,0] = (xData[:,:,:,0]-min1)/(max1-min1)
     
-    xData[:,1,:,:], times[:,2], distance[:,1] = getGEOData(GPM_data,'C08')
+    xData[:,:,:,1], times[:,2], distance[:,1] = getGEOData(GPM_data,'C08')
+    xData[:,:,:,1] = (xData[:,:,:,1]-min2)/(max2-min2)
     
-    xData[:,1,:,:] = (xData[:,1,:,:]-mean2)/std2
+    #newXData = np.reshape(xData,(xData.shape[0],xData.shape[1]*xData.shape[2]*xData.shape[3]))
     
-    xData = xData[:,:,10:18,10:18]
-    print(xData)
-    print(np.mean(xData))
+    #newYData = np.reshape(yData,(len(yData),1))
+    
+    #scaler1.fit(newXData)
+    #newXData = scaler1.transform(newXData)
+    #newYData = newYData/newYData.max()
+    
+    # comine the IR images and the distance and time difference
+    #tmp = np.zeros((xData.shape[0],xData.shape[1]*xData.shape[2]*xData.shape[3]+4))
+    #tmp[:,:xData.shape[1]*xData.shape[2]*xData.shape[3]] = newXData
+    
+    '''
+    tmp[:,-1] = (times[:,0]-times[:,1])/(times[:,0]-times[:,1]).max()
+    tmp[:,-2] = distance[:,0]/distance.max()
+    tmp[:,-3] = (times[:,0]-times[:,2])/(times[:,0]-times[:,2]).max()
+    tmp[:,-4] = distance[:,1]/distance.max()
+    '''
+    
+    
+    #tmp[:,-1] = (times[:,0]-times[:,1])/1000
+    #tmp[:,-2] = distance[:,0]
+    #tmp[:,-3] = distance[:,1]
+    #tmp[:,-4] = (times[:,0]-times[:,2])/1000
+
+    #xData = xData[:,:,10:18,10:18]
+    #print(xData)
+    #print(np.mean(xData))
     #print(convertTimeStampToDatetime(time[0]))
     extent1  = [min(long),max(long),min(lat),max(lat)]
     grid_x, grid_y = np.mgrid[extent1[0]:extent1[1]:200j, extent1[2]:extent1[3]:200j]
@@ -399,31 +476,38 @@ def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
     points[:,1] = lat
     values = perc_tot_rate
     #print(grid_x)
-    print(values.max())
-    
-    upper_threshold = 20
-    indexPosList = [ i for i in range(len(values)) if values[i] >upper_threshold]
+   # print(values.max())
+    #upper_threshold = 20
+    #indexPosList = [ i for i in range(len(values)) if values[i] >upper_threshold]
     #print(indexPosList)
-    values[indexPosList] = upper_threshold
+    #values[indexPosList] = upper_threshold
     #print(values.max())
-    grid_z0 = griddata(points,values, (grid_x, grid_y), method='linear')
-    im = ax.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
-    plt.colorbar(im, ax=ax)
     
-    input_1 = np.zeros((len(xData),8*8*2+4))
-    input_1[:,:8*8*2] = np.reshape(xData,(len(xData),8*8*2))
-    input_1[:,-1] = (times[:,0]-times[:,1])/1000
-    input_1[:,-2] = distance[:,0]
-    input_1[:,-3] = distance[:,1]
-    input_1[:,-4] = (times[:,0]-times[:,2])/1000
     
-    pred = model.predict(input_1)
-    print(pred[:,4])
-    print(np.mean(pred))
+    min_val = 0.1
+    max_val = max(values)
+    inds = np.where(values > min_val)[0]
+    #grid_z0 = griddata(points,values, (grid_x, grid_y), method='linear')
+    #im = ax.imshow(grid_z0.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
+    im1 = axes[-1].scatter(long[inds], lat[inds], c = values[inds], s = 1, cmap='jet',
+                       norm = LogNorm(vmin=0.1, vmax = max_val)) 
+    axes[-1].set_title('DPR', fontsize = 20)
+    #plt.colorbar(im, ax=ax)
+    
+   
+    
+    pred = model.predict(xData)
+    pred = np.square(pred)
+    max_val = max(max_val, pred.max())
+    #print(pred[:,4])
+    #print(np.mean(pred))
     # plot the precction
-    axes = []
+    quantiles = [0.1,0.3,0.5,0.7,0.9]
     for i in range(5):
-        axes.append(fig.add_subplot(6, 1, i+2, projection=pc))
+        min_val = 0.1
+        
+        inds = np.where(pred[:,i] > min_val)[0]
+        axes.append(fig.add_subplot(2, 3, i+2, projection=pc))
         axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
         
         
@@ -431,25 +515,40 @@ def plot_predictions_and_labels(model,DATE, mean1, std1, mean2, std2):
         axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
         #ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
         axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+        axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+        axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
+        axes[-1].set_title('QRNN quantile %s' % (quantiles[i]),fontsize = 20)
         
-        tmp = griddata(points,pred[:,i], (grid_x, grid_y), method='linear')
-        im =axes[-1].imshow(tmp.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
-        plt.colorbar(im, ax=axes[-1])
-    #plt.colorbar()
+        #tmp = griddata(points,pred[:,i], (grid_x, grid_y), method='linear')
+        #im =axes[-1].imshow(tmp.T,extent=(extent1[0],extent1[1],extent1[2],extent1[3]), origin='lower')
+        im =axes[-1].scatter(long[inds], lat[inds], c = pred[inds,i], s = 1, cmap='jet',
+                       norm = LogNorm(vmin=0.1, vmax = max_val)) 
+        #plt.colorbar(im, ax=axes[-1])
+    
+    cbar = fig.colorbar(im1,ax = axes, shrink = 0.79, pad = 0.025,
+                   ticks = [min_val,0.5,1,5,10,25, max_val])
+    cbar.ax.set_yticklabels([str(min_val),'0.5','1','5','10','25',str(100)])
+    cbar.set_label("Rain rate (mm/h)", fontsize = 20)
+    cbar.ax.tick_params(labelsize=20)
+    
+    plt.show()
     #print(np.nan_to_num(grid_z0).max())
     
 def calculate_POD(predictions, targets):
     
     '''
     returns the probability of detection
+    
     '''
+    
+    
     import numpy as np
-    rain_indexes = np.where(targets > 0)[0]
+    rain_indexes = np.where(targets >no_rain_value )[0]
     true_possitives =0
     missing_values = 0
     for rain_index in rain_indexes:
         
-        if predictions[rain_index] > 0:
+        if predictions[rain_index] > no_rain_value:
             true_possitives +=1
         else:
             missing_values +=1
@@ -461,13 +560,14 @@ def calculate_FAR(predictions, targets):
     '''
     returns the false alarm ratio
     '''
+    
     import numpy as np
-    predicted_rain_indexes = np.where(predictions > 0)[0]
+    predicted_rain_indexes = np.where(predictions > no_rain_value)[0]
     true_possitives = 0
     false_pssitives = 0
     
     for rain_index in predicted_rain_indexes:
-        if targets[rain_index] > 0:
+        if targets[rain_index] > no_rain_value:
             true_possitives +=1
         else:
             false_pssitives +=1
@@ -479,14 +579,16 @@ def calculate_CSI(predictions, targets):
     returns the critical sucess index
     '''
     
+    
     rain_indexes = np.where(targets > 0)[0]
-    predicted_rain_indexes = np.where(predictions > 0)[0]
+    predicted_rain_indexes = np.where(predictions > no_rain_value)[0]
     true_possitives =0
     missing_values = 0
     false_pssitives = 0
+    
     for rain_index in rain_indexes:
         
-        if predictions[rain_index] > 0:
+        if predictions[rain_index] > no_rain_value:
             true_possitives +=1
         else:
             missing_values +=1
@@ -591,6 +693,54 @@ def correlation_target_prediction(yTest, prediction):
     
     
     return (exy/len(prediction)-ex/len(prediction)*yTest.sum()/len(prediction))/(np.std(yTest)*np.std(prediction[:,2]))
+
+def cdf(prediction, quantiles):
+        import numpy as np
+        r"""
+        Approximate the posterior CDF for given inputs `x`.
+        Propagates the inputs in `x` forward through the network and
+        approximates the posterior CDF by a piecewise linear function.
+        The piecewise linear function is given by its values at
+        approximate quantiles $x_\tau$ for
+        :math: `\tau = \{0.0, \tau_1, \ldots, \tau_k, 1.0\}` where
+        :math: `\tau_k` are the quantiles to be estimated by the network.
+        The values for :math:`x_0.0` and :math:`x_1.0` are computed using
+        .. math::
+            x_0.0 = 2.0 x_{\tau_1} - x_{\tau_2}
+            x_1.0 = 2.0 x_{\tau_k} - x_{\tau_{k-1}}
+        Arguments:
+            x(np.array): Array of shape `(n, m)` containing `n` inputs for which
+                         to predict the conditional quantiles.
+        Returns:
+            Tuple (xs, fs) containing the :math: `x`-values in `xs` and corresponding
+            values of the posterior CDF :math: `F(x)` in `fs`.
+        """
+        y_pred = np.zeros(prediction.shape[0] + 2)
+        y_pred[1:-1] = prediction
+        y_pred[0] = 2.0 * y_pred[1] - y_pred[2]
+        y_pred[-1] = 2.0 * y_pred[-2] - y_pred[-3]
+
+        qs = np.zeros(prediction.shape[0] + 2)
+        qs[1:-1] = quantiles
+        qs[0] = 0.0
+        qs[-1] = 1.0
+
+        return y_pred, qs
+    
+def posterior_mean(prediction, quantiles):
+        import numpy as np
+        r"""
+        Computes the posterior mean by computing the first moment of the
+        estimated posterior CDF.
+        Arguments:
+            x(np.array): Array of shape `(n, m)` containing `n` inputs for which
+                         to predict the posterior mean.
+        Returns:
+            Array containing the posterior means for the provided inputs.
+        """
+        y_pred, qs = cdf(prediction, quantiles)
+        mus = y_pred[-1] - np.trapz(qs, x=y_pred)
+        return mus
 def generate_all_results(model,xTest, yTest,yTrain ,quantiles):
     import numpy as np
     
@@ -670,19 +820,21 @@ def generate_all_results(model,xTest, yTest,yTrain ,quantiles):
     
 
 def generate_all_results_CNN(prediction,mean,xTest, yTest,yTrain, quantiles):
+    
     import numpy as np
     
     # predict
     #prediction = model.predict(xTest)
+    
+    #calculate the mean value
     '''
-    # calculate the mean value
     mean = np.zeros((xTest.shape[0],1))
     for i in range(xTest.shape[0]):
         
-        mean[i,0] = model.posterior_mean(xTest[i,:])
+        mean[i,0] = posterior_mean(prediction,quantiles)
+    
     
     '''
-
     # generate QQ plot
     generateQQPLot(quantiles, yTest, prediction)
     
@@ -748,4 +900,93 @@ def generate_all_results_CNN(prediction,mean,xTest, yTest,yTrain, quantiles):
     print((prediction[:,-1]-prediction[:,0]).sum()/len(prediction))
     print("################# interval lengths #######")
     print((prediction[:,-1]-prediction[:,0]).sum()/len(prediction))
+    
+    
+def tmp_code_mean_vspixel():
+    import numpy as np
+    xData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
+    yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
+    times = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
+    distance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
+    #xData = xData[:,:,4:25,4:25]
+    
+    '''
+    xData =np.load(folder_path+'/trainingData/xDataC8C13S700000_R28_P400GPM_res3interval_3.npy')
+    yData = np.load(folder_path+'/trainingData/yDataC8C13S700000_R28_P400GPM_res3interval_3.npy')
+    times = np.load(folder_path+'/trainingData/timesC8C13S700000_R28_P400GPM_res3interval_3.npy')
+    distance = np.load(folder_path+'/trainingData/distanceC8C13S700000_R28_P400GPM_res3interval_3.npy') 
+    '''
+    
+    # remove nan values
+    nanValues =np.argwhere(np.isnan(xData)) 
+    xData = np.delete(xData,np.unique(nanValues[:,0]),0)
+    yData = np.delete(yData,np.unique(nanValues[:,0]),0)
+    times = np.delete(times,np.unique(nanValues[:,0]),0)
+    distance = np.delete(distance,np.unique(nanValues[:,0]),0)
+    
+    #np.mean(xTrain, axis=0, keepdims=True)
+    max1 = xData[:,0,:,:].max()
+    max2 = xData[:,1,:,:].max()
+    min1 = xData[:,0,:,:].min()
+    min2 = xData[:,1,:,:].min()
+    
+    
+    print(xData.shape)
+    
+    from typhon.retrieval import qrnn
+    # = qrnn.QRNN()
+    model = qrnn.QRNN.load('model.h5')
+    
+    
+    
+    
+    xData2 =np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')
+    yData2 = np.load('trainingData/yDataC8C13S3200_R28_P4GPM_res3.npy')
+    times2 = np.load('trainingData/timesC8C13S3200_R28_P4GPM_res3.npy')
+    distance2 = np.load('trainingData/distanceC8C13S3200_R28_P4GPM_res3.npy')  
+    
+    # remove nan values
+    
+    nanValues =np.argwhere(np.isnan(xData2)) 
+    xData2 = np.delete(xData2,np.unique(nanValues[:,0]),0)
+    yData2 = np.delete(yData2,np.unique(nanValues[:,0]),0)
+    times2 = np.delete(times2,np.unique(nanValues[:,0]),0)
+    distance2 = np.delete(distance2,np.unique(nanValues[:,0]),0)
+    
+    
+    print(xData2.shape)
+    print(yData2.shape)
+    print(times2.shape)
+    print(distance2.shape)
+    
+    x_data_test = np.zeros((3200,28,28,2))
+    x_data_test[:,:,:,0] = (xData2[:,0,3,3,:,:]-min1)/(max1-min1)
+    x_data_test[:,:,:,1] = (xData2[:,1,3,3,:,:]-min2)/(max2-min2)
+    times_test = times2[:,:,3,3]
+    distance_test = distance2[:,:,3,3]
+    
+    
+    newXData = np.reshape(x_data_test,(x_data_test.shape[0],x_data_test.shape[1]*x_data_test.shape[2]*x_data_test.shape[3]))
+    tmp = np.zeros((x_data_test.shape[0],x_data_test.shape[1]*x_data_test.shape[2]*x_data_test.shape[3]+4))
+    tmp[:,:x_data_test.shape[1]*x_data_test.shape[2]*x_data_test.shape[3]] = newXData
+    
+    
+    tmp[:,-1] = (times_test[:,0]-times_test[:,1])/1000
+    tmp[:,-2] = distance_test[:,0]
+    tmp[:,-3] = distance_test[:,1]
+    tmp[:,-4] = (times_test[:,0]-times_test[:,2])/1000
+    
+    predictions = model.predict(tmp)
+    
+    
+    tmp_y_train = np.mean(yData[:175000,:,:], axis=(1,2))
+    tmp_y_test = np.mean(yData2,axis=(1,2))
+    
+    print(tmp_y_train.shape)
+    print(tmp_y_test.shape)
+    
+    from visulize_results import generate_all_results_CNN
+    quantiles = [0.1,0.3,0.5,0.7,0.9]
+    generate_all_results_CNN(predictions,np.reshape(predictions[:,2],(len(predictions[:,2]),1)),None,tmp_y_test,tmp_y_train, quantiles)
+
     
