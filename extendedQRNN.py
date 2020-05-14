@@ -6,7 +6,7 @@ import pickle
 
 import numpy as np
 from scipy.interpolate import CubicSpline
-from Models import unet
+from Models import unet,convLSTM
 
 # Keras Imports
 try:
@@ -14,7 +14,7 @@ try:
     
     from keras.models import Model
     from keras.models import Sequential, clone_model
-    from keras.layers import Dense, Activation, Conv2D, MaxPooling2D, Flatten,BatchNormalization,Dropout, Input,concatenate
+    from keras.layers import Dense, Activation, Conv2D,Conv3D, MaxPooling2D,MaxPooling3D, Flatten,BatchNormalization,Dropout, Input,concatenate
     from keras.optimizers import SGD, Adam,Adadelta,Adagrad,RMSprop
 except ImportError:
     raise ImportError(
@@ -113,7 +113,7 @@ class DataGenerator(keras.utils.Sequence):
         self.y_data = y_data
         self.sigma_noise = sigma_noise
         self.shuffle = shuffle
-        self.indexes = np.array(list(range(x_data.shape[0])))
+        self.indexes = np.random.permutation(self.x_data.shape[0])
         self.on_epoch_end()
         
 
@@ -458,45 +458,65 @@ class QRNN:
         self.model_name = model_name
 
         model = Sequential()
-        if model_name == 'unet':
+        if model_name == 'convLSTM':
+            model = convLSTM()
+        elif model_name == 'unet':
             model = unet(input_size = (112,112,2))
         elif model_name == 'CNN':
             momentum = 0.9
             epsilon = 0.001
             activation = 'relu'
-            start_kernels = 64
-            drop = 0.5
-            input1 = Input( shape = (28,28,2))
+            start_kernels = 32
+            drop = 0.3
+            input1 = Input( shape = (6,28,28,1))
             input2 = Input( shape = (4,) )
             #conv_model = Sequential()
             tmp_input = input1
-            for i in range(4):
-                tmp_input = Conv2D(start_kernels*(i+1), kernel_size=(3, 3),
-                                 input_shape = (28,28,2),
-                                 padding = 'same', activation = activation)(tmp_input)
-                
-                tmp_input = Conv2D(start_kernels*(i+1), kernel_size=(3, 3),
-                                 input_shape = (28,28,2),
-                                 padding = 'same', activation = activation)(tmp_input)
-                
-                tmp_input = MaxPooling2D(pool_size=(2, 2))(tmp_input)
-                #model.add(Dropout(drop))
+        
+            tmp_input = Conv3D(128, kernel_size=(1,2, 2),
+                             input_shape = (6,28,28,1),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            tmp_input = Conv3D(128, kernel_size=(1,2, 2),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            
+            tmp_input = MaxPooling3D(pool_size=(1, 2, 2))(tmp_input)
+            
+            tmp_input = Conv3D(256, kernel_size=(1,2, 2),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            tmp_input = Conv3D(256, kernel_size=(1,2, 2),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            
+            tmp_input = MaxPooling3D(pool_size=(1, 2, 2))(tmp_input)
+            
+            tmp_input = Conv3D(400, kernel_size=(1,2, 2),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            tmp_input = Conv3D(400, kernel_size=(1,2, 2),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            
+            tmp_input = MaxPooling3D(pool_size=(1, 2, 2))(tmp_input)
             
             flat = Flatten()(tmp_input)
             
             #combine = concatenate(cnn_output, input2)
             #print(cnn_output)
             #print(input2)
-            concat = concatenate([flat, input2])
+            #concat = concatenate([flat, input2])
             #fc_model.add(Flatten())
             
             #model.add(Dropout(0.25))
-            dense = Dense(128, activation='relu')(concat)
+            dense = Dense(128, activation='relu')(flat)
+            dense = Dense(128, activation='relu')(dense)
             dense = Dense(128, activation='relu')(dense)
             out = Dense(5)(dense)
             
-            model = Model(inputs = [input1, input2], outputs = out)
-            
+            model = Model(inputs = input1, outputs = out)
+            print(model.summary())
             
 
             
@@ -741,8 +761,8 @@ class QRNN:
         self.custom_objects = {loss.__name__: loss}
         for model in self.models:
             optimizer = SGD(lr=ilr)
-            #optimizer = Adagrad()
-            #optimizer = Adam(lr = 0.0001)
+            optimizer = Adagrad()
+            #optimizer = Adam()
             #optimizer = RMSprop(learning_rate=0.001)
             
             model.compile(loss=loss, optimizer=optimizer)

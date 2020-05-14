@@ -17,7 +17,34 @@ lats = []
 oldFile = ""
 folder_path = 'E:/Precipitation_mesurments'
 
-
+def downloadReferenceDataFromFTPServer():
+    from ftplib import FTP
+    import os, sys, os.path
+    
+    
+    #ddir='C:\\Data\\test\\'
+    #os.chdir(ddir)
+    ftp = FTP('server-ftpdsa.cptec.inpe.br')
+    
+    
+    ftp.login('rogerio.batista', 'dsa2013')
+    directory = '/Daniel/'
+    
+    
+    ftp.cwd(directory)
+    
+    filenames = ftp.nlst() # get filenames within the directory
+    print(filenames)
+    
+    
+    for filename in filenames:
+        local_filename = os.path.join('C:\\Users\\gustav\\Documents\\Sorted\\PrecipitationMesurments\\ReferensData\\', filename)
+        file = open(local_filename, 'wb')
+        ftp.retrbinary('RETR '+ filename, file.write)
+    
+        file.close()
+    
+    ftp.quit()
 def getFilesForHour(DATE):
     
     '''
@@ -1024,11 +1051,11 @@ def getGPMDataImage(start_DATE, maxDataSize):
                 
             
             
-            #index1 = min(maxDataSize,index+len(precepTotRate),index+data_per_GPM_pass)
+            index1 = min(maxDataSize,index+len(precepTotRate),index+data_per_GPM_pass)
         
             
             
-            #indexes = random.sample(range(0, len(precepTotRate)), index1-index)
+            indexes = random.sample(range(0, len(precepTotRate)), index1-index)
        
             
             #print(chosen_prec)
@@ -1042,10 +1069,10 @@ def getGPMDataImage(start_DATE, maxDataSize):
             '''
             
             
-            #gpm_data[index:index1,0] = longitude[indexes]
-            #gpm_data[index:index1,1] = latitude[indexes]
-            #gpm_data[index:index1,2] = time[indexes]
-            #gpm_data[index:index1,3] = precepTotRate[indexes]
+            gpm_data[index:index1,0] = longitude[indexes]
+            gpm_data[index:index1,1] = latitude[indexes]
+            gpm_data[index:index1,2] = time[indexes]
+            gpm_data[index:index1,3] = precepTotRate[indexes]
             
             #index = index1
             print(index)
@@ -1127,9 +1154,166 @@ def getTrainingData(dataSize, nmb_GPM_pass, GPM_resolution):
     np.save(folder_path+'/trainingData/yDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'timeSeries.npy', yData)   
     np.save(folder_path+'/trainingData/timesC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'timeSeries.npy', times)
     np.save(folder_path+'/trainingData/distanceC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'timeSeries.npy', distance)  
+   
+    
+    return xData, yData, times, distance
+def getReferenceDataFileTime(file):
+    import datetime
+    return (datetime.datetime.strptime(file.split('_')[1].split('.')[0], '%Y%m%d%H%M'))
+    
+def getReferenceDataLabels(GPM_data):
+    from os import listdir
+    from os.path import isfile, join
+    import numpy as np
+    # Hidro GOES16 coordinates
+    nlin = 1613
+    ncol = 1349
+    DY   = -0.0359477
+    DX   = 0.0382513
+    lati = 13.01202615
+    loni = -81.98087435
+    
+    
+    # creating lat lon vectors
+    latf = lati + (nlin*DY)
+    lonf = loni + (ncol*DX)
+    
+    
+    lats = np.arange(lati,latf,DY)
+    lons = np.arange(loni,lonf,DX)
+    # get label matrix data
+    nlin = 1613
+    ncol = 1349
+    filepath = 'C:\\Users\\gustav\\Documents\\Sorted\\PrecipitationMesurments\\ReferensData\\binaries'
+    
+    # create list of file name times
+    files = listdir(filepath)
+    
+    # create list of times
+    file_times = [getReferenceDataFileTime(file) for file in files]
+    
+    reference_labels = np.zeros((len(GPM_data),1))
+    for i in range(len(GPM_data)):
+        
+        currentTime = convertTimeStampToDatetime(GPM_data[i,2])
+        #print(currentTime)
+        # get the closest file
+        time_differences = [np.abs((time-currentTime).total_seconds()) for time in file_times]
+        #print(time_differences)
+        index = np.argmin(time_differences)
+        #print(index)
+        current_file = files[index]
+        #print(current_file)
+        
+        # get teh rain rate array
+        rr_array = np.fromfile(filepath+'\\'+current_file, dtype=np.int16,count=nlin*ncol).reshape(nlin, ncol)/10
+        y_index = (np.abs(lons-GPM_data[i,0])).argmin()
+        x_index = (np.abs(lats-GPM_data[i,1])).argmin()
+        reference_labels[i,0] = rr_array[x_index,y_index]
+      
+        print(i)
+
+    
+    return reference_labels[:,0]
+def getReferenceData():
+    import numpy as np
+    import datetime
+    import time
+    
+    #receptiveField = 28
+
+    '''
+    returns the gpm data for the availiablle reference data along with the
+    geostationary window and the referens label
+    '''
+    dataSize = 40000
+    nmb_GPM_pass = 10000
+    GPM_resolution = 1
+    xData = np.zeros((dataSize,2,receptiveField,receptiveField))
+    times = np.zeros((dataSize,3))
+    yData = np.zeros((dataSize,2))
+    distance = np.zeros((dataSize,2))
+    
+    
+    '''
+        First step is to get the label data. To do this, we look at a specifi
+        passing of the satelite over the area. We then extract the points
+        in wich it passes. the result is a list of all the pixel that it 
+        passet. Each entry in the list has the following atributes
+            
+            1: position
+            2: time
+            3: rain amount
+    '''
+    start_time = time.time()
+    GPM_data= getGPMData(datetime.datetime(2019,3,20),dataSize,nmb_GPM_pass,GPM_resolution)
+    times[:,0] = GPM_data[:,2]
+    end_time = time.time()
+    
+    print("time for collecting GPM Data %s" % (end_time-start_time))
+    '''
+    next step is to pair the label with the geostattionary data.
+    '''
+    start_time = time.time()
+    
+    tmp_x, tmp_time, tmp_distance =  getGEOData(GPM_data,'C13')
+    xData[:,0,:,:] =tmp_x
+    times[:,1] =tmp_time
+    distance[:,0] =tmp_distance
+    
+    #xData[:,1,:,:], times[:,2], distance[:,1] = getGEOData(np.reshape(GPM_pos_time_data, (GPM_pos_time_data.shape[0]*GPM_pos_time_data.shape[2]*GPM_pos_time_data.shape[3],GPM_pos_time_data.shape[1])),'C08')
+    tmp_x, tmp_time, tmp_distance =  getGEOData(GPM_data,'C08')
+    xData[:,1,:,:] = tmp_x
+    times[:,2] = tmp_time
+    distance[:,1] = tmp_distance
+    
+    yData[:,0] = GPM_data[:,3]
+    end_time = time.time()
+    
+    print("time for collecting GEO Data %s" % (end_time-start_time))
+    yData[:,1] = getReferenceDataLabels(GPM_data)
+    
+    import numpy as np
+    
+    np.save(folder_path+'/trainingData/xDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'reference.npy', xData)   
+    np.save(folder_path+'/trainingData/yDataC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'reference.npy', yData)   
+    np.save(folder_path+'/trainingData/timesC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'reference.npy', times)
+    np.save(folder_path+'/trainingData/distanceC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'reference.npy', distance)  
+    np.save(folder_path+'/trainingData/positionC8C13S'+str(dataSize)+'_R'+str(receptiveField)+'_P'+str(nmb_GPM_pass)+'GPM_res'+str(GPM_resolution)+'reference.npy', GPM_data)  
     
     
     return xData, yData, times, distance
+    
+    
+
+def load_gauge_data():
+    from os import listdir
+    from os.path import isfile, join
+    from datetime import datetime
+    import numpy as np
+    
+    file_path = 'C:\\Users\\gustav\\Documents\\Sorted\\PrecipitationMesurments\\ReferensData\\hourly_rainfall'
+    
+    # get all the gauge data file names
+    file_names = listdir(file_path)
+    line_count = 165686
+    data = np.zeros((line_count,4))
+    line_number = 0
+    for file in file_names:
+        
+        date = datetime.strptime(file[4:-4], '%Y%m%d%H%M')
+        #print(date)
+        #print(file)
+        with open(file_path +'\\'+ file) as f:
+            for cnt, line in enumerate(f):
+                values = line.split('  ')
+                #print(date.timestamp())
+                #print(values)
+                if isinstance(values[1], float) and isinstance(values[2], float) and isinstance(values[-1], float):
+                    data[line_number,:] = [values[1],values[2],values[-1],date.timestamp()]
+                elif isinstance(values[1], float) and isinstance(values[3], float) and isinstance(values[-1], float):
+                    data[line_number,:] = [values[1],values[3],values[-1],date.timestamp()]
+                line_number +=1
 
 
 def plotTrainingData(xData,yData, times, nmbImages):
@@ -1215,14 +1399,16 @@ def get_single_GPM_pass(DATE):
             except:
                 continue
             # remove null data 
+            
+
 def load_data():
     import numpy as np
     
     
-    xData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
-    yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
-    times = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
-    distance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
+    scalexData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
+    scaleyData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
+    scaletimes = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
+    scaledistance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
     #xData = xData[:,:,6:22,6:22]
     
     '''
@@ -1256,8 +1442,14 @@ def load_data():
     times = np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')
     distance = np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')  
     '''    
-    # remove nan values
+    xData =np.load(folder_path+'/trainingData/xDataC8C13S40000_R28_P10000GPM_res1reference.npy')
+    yData = np.load(folder_path+'/trainingData/yDataC8C13S40000_R28_P10000GPM_res1reference.npy')
+    times = np.load(folder_path+'/trainingData/timesC8C13S40000_R28_P10000GPM_res1reference.npy')
+    distance = np.load(folder_path+'/trainingData/distanceC8C13S40000_R28_P10000GPM_res1reference.npy') 
     
+    # remove nan values
+    scalenanValues =np.argwhere(np.isnan(scalexData)) 
+    scalexData = np.delete(scalexData,np.unique(scalenanValues[:,0]),0)
     
     nanValues =np.argwhere(np.isnan(xData)) 
     xData = np.delete(xData,np.unique(nanValues[:,0]),0)
@@ -1297,18 +1489,35 @@ def load_data():
     #std2 = np.std(xData[:,1,:,:], axis = 0,keepdims = True)
     #max_values = []
     
-    tmpXData = np.zeros((len(xData),28,28,xData.shape[1]))
-    
-    for i in range(xData.shape[1]):
+    '''
+    tmpXData = np.zeros((len(xData),6,28,28,1))
+    tmpXData[:,0,:,:,0] = xData[:,0,:,:]
+    tmpXData[:,1,:,:,0] = xData[:,3,:,:]
+    tmpXData[:,2,:,:,0] = xData[:,1,:,:]
+    tmpXData[:,3,:,:,0] = xData[:,4,:,:]
+    tmpXData[:,4,:,:,0] = xData[:,2,:,:]
+    tmpXData[:,5,:,:,0] = xData[:,5,:,:]
+    '''
+    #tmpXData = np.zeros((len(xData),28,28,2))
+    '''
+    for i in range(6):
         #mean1 = np.mean(xData[:,i,:,:], axis = 0,keepdims = True)
         #std1 = np.std(xData[:,i,:,:], axis = 0,keepdims = True)
         #tmpXData[:,:,:,i] = (xData[:,i,:,:]-mean1)/std1
     
-        tmpXData[:,:,:,i] = (xData[:,i,:,:]-xData[:,i,:,:].min())/(xData[:,i,:,:].max()-xData[:,i,:,:].min())
+        tmpXData[:,i,:,:,:] = (tmpXData[:,i,:,:,:]-tmpXData[:,i,:,:,:].min())/(tmpXData[:,i,:,:,:].max()-tmpXData[:,i,:,:,:].min())
+    '''
+    '''
+    for i in range(6):
+        #tmpXData[:,:,:,i] = (xData[:,i,:,:]-mean1)/std1
     
+        tmpXData[:,i,:,:,:] = (tmpXData[:,i,:,:,:]-tmpXData[:,i,:,:,:].min())/(tmpXData[:,i,:,:,:].max()-tmpXData[:,i,:,:,:].min())
+    '''
+    '''
     #tmpXData = np.zeros((len(xData),28,28,2))
     #tmpXData[:,:,:,0] = xData[:,0,:,:]
     #tmpXData[:,:,:,1] = xData[:,1,:,:]
+    '''
     '''
     for i in range(len(xData)):
         if i % 10000 == 0:
@@ -1320,12 +1529,16 @@ def load_data():
         tmpXData[i,:,30,:] = np.full((28,2),distance[i,1])
         tmpXData[i,:,31,:] = np.full((28,2),(times[i,0]-times[i,2])/1000)
     '''    
-    xData = tmpXData
+    #xData = tmpXData
     # yData = (yData-np.mean(yData))/np.std(yData)
     # yData = np.sqrt(yData)
     #newXData = preprocessDataForTraining(xData, yData, times, distance)
-    
-    return xData,yData
+    tmpXData = np.zeros((len(xData),xData.shape[2],xData.shape[3],xData.shape[1]))
+    for i in range(xData.shape[1]):
+ 
+            tmpXData[:,:,:,i] = (xData[:,i,:,:]-scalexData[:,i,:,:].min())/(scalexData[:,i,:,:].max()-scalexData[:,i,:,:].min()) 
+
+    return tmpXData, yData
 
 def preprocessData(xData, yData, model, scale):
     import numpy as np

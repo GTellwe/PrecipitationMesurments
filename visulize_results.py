@@ -685,14 +685,14 @@ def correlation_target_prediction(yTest, prediction):
     #ey = 0
     for i in range(len(prediction)):
       
-        ex += prediction[i,2]
-        exy += yTest[i]*prediction[i,2]
+        ex += prediction[i]
+        exy += yTest[i]*prediction[i]
     
         #ex += np.abs(yTest[i]-prediction[i,2])
         #exy += yTest[i]*np.abs(yTest[i]-prediction[i,2])
     
     
-    return (exy/len(prediction)-ex/len(prediction)*yTest.sum()/len(prediction))/(np.std(yTest)*np.std(prediction[:,2]))
+    return (exy/len(prediction)-ex/len(prediction)*yTest.sum()/len(prediction))/(np.std(yTest)*np.std(prediction[:]))
 
 def cdf(prediction, quantiles):
         import numpy as np
@@ -814,7 +814,7 @@ def generate_all_results(model,xTest, yTest,yTrain ,quantiles):
     #print("labelsize and corect 30 conf interval: %s" % get_correlation_labelsize_prediction(yTest, prediction))
     print("distance between 5 quantile and true vaule and label size: %s" % get_correlation_MSE_labelsize(yTest, prediction))
     print("same as above but for the a priori mean as predictior : %s" % get_correlation_MSEapriori_labelsize(yTest,yTrain, prediction))
-    print("correlation target prediction: %s" % correlation_target_prediction(yTest, prediction))
+    print("correlation target prediction: %s" % correlation_target_prediction(yTest, prediction[:,2]))
     print("################# interval lengths #######")
     print((prediction[:,-1]-prediction[:,0]).sum()/len(prediction))
     

@@ -14,7 +14,6 @@ from data_loader import getTrainingData
 # create training data
 xData, yData , times, distance = getTrainingData(6200,1400, GPM_resolution = 3)   
 
-#%%
 
 
 #%% code for the typhon qrnn
@@ -39,15 +38,18 @@ input_dim = newXData.shape[1]
 
 
 # split into training and validation set
-cut_index_1 =175000
+#cut_index_1 =160000
 
 
-xTest = newXData[cut_index_1:,:]
-yTest = newYData[cut_index_1:,:]
+print(newYData.shape)
+print(newXData.shape)
+
+#xTest = newXData[cut_index_1:,:]
+#yTest = newYData[cut_index_1:]
 
 
-xTrain = newXData[:cut_index_1,:]
-yTrain = newYData[:cut_index_1,:]
+#xTrain = newXData[:cut_index_1,:]
+#yTrain = newYData[:cut_index_1]
 #xTrain = newXData[:cut_index_1,:]
 
 #yTrain = newYData[:cut_index_1]
@@ -58,52 +60,19 @@ yTrain = newYData[:cut_index_1,:]
 input_dim = newXData.shape[1]
 
 # split into training and validation set
-
-
-
-# train the model
-#%%
-indexes = random.sample(range(0,len(xTest)),50)
-x_valid = xTest[indexes,:]
-y_valid = yTest[indexes,:]
-#indexes = random.sample(range(0,len(xTrain)),40000)
-#x_train = xTrain[indexes,:]
-#y_train = yTrain[indexes]
-
-
-#%%
-start_index = 8
-end_index = 120
-tmp_x_train = xTrain[:,start_index:end_index,start_index:end_index,:]
-tmp_x_test = xTest[:,start_index:end_index,start_index:end_index,:]
-#%%
-print(xTrain.shape)
-
-
-
-#%%
-import matplotlib.pyplot as plt
-index = 10
-plt.imshow(tmp_x_train[index,:,:,0])
-plt.show()
-plt.imshow(tmp_x_train[index,:,:,1])
-plt.show()
-plt.imshow(tmp_y_train[index,:,:])
-plt.show()
 #%%
 import extendedQRNN
-model = extendedQRNN.QRNN((28*28*2+4,),quantiles, depth = 8,width = 256, activation = 'relu', model_name ='MLP')
+model = extendedQRNN.QRNN((28*28*2+4,),quantiles, depth = 8,width = 256, activation = 'relu', model_name ='CNN')
 
 model.fit(x_train = xTrain,
-          y_train = yTrain[:,3,3],
+          y_train = yTrain,
           x_val=xTest,
-          y_val =yTest[:,3,3],
+          y_val =yTest,
           batch_size = 256,
           maximum_epochs = 500)
 
 #%%
-model = qrnn.QRNN(28*28*2,quantiles, depth = 16,width = 512, activation = 'relu')
-model.fit(x_train = xTrain, y_train = yTrain,x_val = x_valid, y_val = y_valid, batch_size = 512,maximum_epochs = 500)
+print('sad')
 #%% save model
 
 model.save('model.h5')
@@ -112,15 +81,29 @@ model.save('model.h5')
 from keras.models import load_model
 model = load_model('results\sqrt\model.h5')
 #%% load model
-from typhon.retrieval import qrnn
+import extendedQRNN 
 # = qrnn.QRNN()
-model = qrnn.QRNN.load('results\\model.h5')
+model = extendedQRNN.QRNN.load('results/CNN2_28_1_350k/model.h5')
 
+#%%
+from visulize_results import calculate_tot_MSE,correlation_target_prediction
+print(calculate_tot_MSE(newYData[:,1]/10,newYData[:,0]))
+print(correlation_target_prediction(newYData[:,0], newYData[:,1]/10))
 #%%generate results
 from visulize_results import generate_all_results
-generate_all_results(model, xTest,yTest[:,3,3],yTrain[:,3,3], quantiles)
+generate_all_results(model, newXData,newYData[:,0],newYData[:,0], quantiles)
 #%%
-predictions = model.predict(xTest[:,8:120,8:120,:])
+predictions = model.predict(newXData)
+
+#%%
+mean = np.zeros((40000,1))
+for i in range(40000):
+    
+    mean[i] = model.posterior_mean(newXData[i,:])
+#%%
+from visulize_results import calculate_tot_MSE,correlation_target_prediction
+print(calculate_tot_MSE(mean,newYData[:,0]))
+print(correlation_target_prediction(newYData[:,0], mean))
 #%%
 #%%
 print(predictions.shape)
@@ -200,6 +183,31 @@ x_test[:,:,:,1] = (xData[:3100,1,8:120,8:120]-min2)/(max2-min2)
 #%%
 predictions = model.predict(x_test)
 
+#%%
+y_test = yData[:3100,:,:]
+#%%
+tmp = np.argwhere(yTest >30)
+print(tmp.shape)
+print(predictions.shape)
+#%%
+from matplotlib.colors import LogNorm
+import matplotlib.pyplot as plt
+index = tmp[0,0]
+fig, ax = plt.subplots(2,3, figsize= (20,6))
+max_val = 50
+min_val = 0.1
+im1 =ax[0,0].imshow(yTest[index,:,:], cmap='jet',norm = LogNorm(vmin=0.1, vmax = max_val))
+im2 =ax[0,1].imshow(predictions[index,:,:,0],cmap='jet',norm = LogNorm(vmin=0.1, vmax = max_val))
+im3 = ax[0,2].imshow(predictions[index,:,:,1], cmap='jet',norm = LogNorm(vmin=0.1, vmax = max_val))
+ax[1,0].imshow(predictions[index,:,:,2], cmap='jet',norm = LogNorm(vmin=0.1, vmax = max_val))
+ax[1,1].imshow(predictions[index,:,:,3], cmap='jet',norm = LogNorm(vmin=0.1, vmax = max_val))
+im6 = ax[1,2].imshow(predictions[index,:,:,4], cmap='jet',norm = LogNorm(vmin=0.1, vmax = max_val))
+cbar = fig.colorbar(im6,ax = ax, shrink = 0.79, pad = 0.025,
+                   ticks = [min_val,0.5,1,5,10,25, max_val])
+cbar.ax.set_yticklabels([str(min_val),'0.5','1','5','10','25',str(100)])
+cbar.set_label("Rain rate (mm/h)", fontsize = 20)
+cbar.ax.tick_params(labelsize=20)
+plt.show()
 #%% load model
 import matplotlib.pyplot as plt
 font1 = 15
@@ -258,7 +266,7 @@ print(xData.shape)
 #%%
 import matplotlib.pyplot as plt
 index = 1
-tmp = np.argwhere(yData >30)
+tmp = np.argwhere(yTest >30)
 print(tmp.shape)
 #%%
 from matplotlib.colors import LogNorm
@@ -279,3 +287,270 @@ cbar.ax.set_yticklabels([str(0.1),'0.5','1','5','10','25',str(100)])
 cbar.set_label("Rain rate (mm/h)", fontsize = 10)
 cbar.ax.tick_params(labelsize=10)
 plt.show()
+
+
+#%%
+import numpy as np
+nlin = 1613
+ncol = 1349
+filepath = "S11636382_201903200930.bin"
+array = np.fromfile(filepath, dtype=np.int16,count=nlin*ncol).reshape(nlin, ncol)/10
+
+#%%
+import matplotlib.pyplot as plt
+plt.imshow(array)
+print(array.shape)
+
+#%%
+from os import listdir
+from os.path import isfile, join
+files = listdir('C:\\Users\gustav\\Documents\\Sorted\\PrecipitationMesurments\\ReferensData\\binaries')
+
+print(files)
+
+#%%
+from data_loader import getReferenceData
+getReferenceData()
+
+#%%
+import numpy as np
+from scipy.interpolate import griddata
+import xarray
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+import datetime
+from data_loader import get_single_GPM_pass
+from data_loader import convertTimeStampToDatetime
+from data_loader import getGEOData
+from matplotlib.colors import LogNorm
+folder_path = 'E:/Precipitation_mesurments'
+xData =np.load(folder_path+'/trainingData/xDataC8C13S10000_R28_P10000GPM_res1reference.npy')
+yData = np.load(folder_path+'/trainingData/yDataC8C13S10000_R28_P10000GPM_res1reference.npy')
+times = np.load(folder_path+'/trainingData/timesC8C13S10000_R28_P10000GPM_res1reference.npy')
+distance = np.load(folder_path+'/trainingData/distanceC8C13S10000_R28_P10000GPM_res1reference.npy') 
+GPM_data = np.load(folder_path+'/trainingData/positionC8C13S10000_R28_P10000GPM_res1reference.npy') 
+
+
+extent = [-70, -50, -10, 2]
+fig = plt.figure(figsize=(30, 30))
+axes = []
+# Generate an Cartopy projection
+pc = ccrs.PlateCarree()
+fig.tight_layout()
+fig.subplots_adjust(bottom = 0.60, left = 0.0, right = 0.8)
+axes.append(fig.add_subplot(1, 3, 1, projection=pc))
+axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
+
+
+
+axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
+#ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
+
+
+min_val = 0.1
+max_val = 100
+
+im1 = axes[-1].scatter(GPM_data[:,0], GPM_data[:,1], c = yData[:,0], s = 1, cmap='jet',
+               norm = LogNorm(vmin=min_val, vmax = max_val)) 
+axes[-1].set_title('DPR', fontsize = 20)
+
+
+axes.append(fig.add_subplot(1, 3, 2, projection=pc))
+axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
+
+
+
+axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
+#ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
+
+im1 = axes[-1].scatter(GPM_data[:,0], GPM_data[:,1], c = yData[:,1]/10, s = 1, cmap='jet',
+               norm = LogNorm(vmin=min_val, vmax = max_val)) 
+axes[-1].set_title('Hydro', fontsize = 20)
+
+axes.append(fig.add_subplot(1, 3, 3, projection=pc))
+axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
+
+
+
+axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
+#ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
+
+inds = np.where(predictions[:,2] > min_val)[0]
+
+im1 = axes[-1].scatter(GPM_data[inds,0], GPM_data[inds,1], c = predictions[inds,2], s = 1, cmap='jet',
+               norm = LogNorm(vmin=min_val, vmax = max_val)) 
+axes[-1].set_title('Hydro', fontsize = 20)
+#plt.colorbar(im, ax=ax)
+
+   
+
+
+
+
+#plt.colorbar(im, ax=axes[-1])
+
+cbar = fig.colorbar(im1,ax = axes, shrink = 0.79, pad = 0.025,
+               ticks = [min_val,0.5,1,5,10,25, max_val])
+cbar.ax.set_yticklabels([str(min_val),'0.5','1','5','10','25',str(max_val)])
+cbar.set_label("Rain rate (mm/h)", fontsize = 20)
+cbar.ax.tick_params(labelsize=20)
+
+plt.show()
+#%%
+plt.plot(predictions[:,2])
+#%%
+from data_loader import convertTimeStampToDatetime
+print(convertTimeStampToDatetime(GPM_data[0,2]))
+#print(np.nan_to_num(grid_z0).max())
+
+#%%
+extent = [-70, -50, -10, 2]
+import numpy as np
+from scipy.interpolate import griddata
+import xarray
+import cartopy.crs as ccrs
+import matplotlib.pyplot as plt
+import datetime
+from data_loader import get_single_GPM_pass
+from data_loader import convertTimeStampToDatetime
+from data_loader import getGEOData
+from matplotlib.colors import LogNorm
+nlin = 1613
+ncol = 1349
+filepath = "S11636382_201903200930.bin"
+array = np.fromfile(filepath, dtype=np.int16,count=nlin*ncol).reshape(nlin, ncol)/10
+# Hidro GOES16 coordinates
+nlin = 1613
+ncol = 1349
+DY   = -0.0359477
+DX   = 0.0382513
+lati = 13.01202615
+loni = -81.98087435
+
+
+# creating lat lon vectors
+latf = lati + (nlin*DY)
+lonf = loni + (ncol*DX)
+
+print(lati,latf)
+print(loni,lonf)
+
+lats = np.arange(lati,latf,DY)
+lons = np.arange(loni,lonf,DX)
+print(lats.shape)
+print(lons.shape)
+min_lat_index = np.argmin(np.abs(lats-extent[2]))
+max_lat_index = np.argmin(np.abs(lats-extent[3]))
+min_lon_index = np.argmin(np.abs(lons-extent[0]))
+max_lon_index = np.argmin(np.abs(lons-extent[1]))
+lats = lats[max_lat_index:min_lat_index]
+lons = lons[min_lon_index:max_lon_index]
+print(min_lat_index)
+print(max_lat_index)
+print(min_lon_index)
+print(max_lon_index)
+print(array.shape)
+lats = np.reshape(lats, (len(lats),1))
+lons = np.reshape(lons, (len(lons),1))
+lats_matrix = np.repeat(lats,len(lons), axis=1)
+lons_matrix = np.repeat(lons,len(lats), axis = 1)
+print(lats_matrix.shape)
+print(lats_matrix.shape)
+#plt.plot(lats)
+#plt.show()
+#plt.plot(lons)
+tmp_array = array[max_lat_index:min_lat_index, min_lon_index:max_lon_index]
+
+fig = plt.figure(figsize=(30, 30))
+axes = []
+# Generate an Cartopy projection
+pc = ccrs.PlateCarree()
+fig.tight_layout()
+fig.subplots_adjust(bottom = 0.60, left = 0.0, right = 0.8)
+axes.append(fig.add_subplot(1, 3, 1, projection=pc))
+axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
+
+
+
+axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
+#ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
+
+
+min_val = 0.1
+max_val = 100
+#plt.imshow(tmp_array)
+im1 = axes[-1].scatter(np.transpose(lons_matrix).flatten(),lats_matrix.flatten(), c = tmp_array.flatten(), s = 1, cmap='jet',
+               norm = LogNorm(vmin=0.1, vmax = 100)) 
+#%%
+
+extent = [-70, -50, -10, 2]
+fig = plt.figure(figsize=(30, 30))
+axes = []
+# Generate an Cartopy projection
+pc = ccrs.PlateCarree()
+fig.tight_layout()
+fig.subplots_adjust(bottom = 0.60, left = 0.0, right = 0.8)
+axes.append(fig.add_subplot(1, 3, 1, projection=pc))
+axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
+
+
+
+axes[-1].coastlines(resolution='50m', color='black', linewidth=0.5)
+#ax.add_feature(ccrs.cartopy.feature.STATES, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
+axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
+axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
+
+
+min_val = 0.1
+max_val = max(yData[:,0])
+
+im1 = axes[-1].scatter(GPM_data[:,0], GPM_data[:,1], c = yData[:,0], s = 1, cmap='jet',
+               norm = LogNorm(vmin=0.1, vmax = max_val)) 
+axes[-1].set_title('DPR', fontsize = 20)
+
+#%%
+
+from os import listdir
+from os.path import isfile, join
+from datetime import datetime
+import numpy as np
+
+file_path = 'C:\\Users\\gustav\\Documents\\Sorted\\PrecipitationMesurments\\ReferensData\\hourly_rainfall'
+
+# get all the gauge data file names
+file_names = listdir(file_path)
+line_count = 165686
+data = np.zeros((line_count,4))
+line_number = 0
+for file in file_names:
+    
+    date = datetime.strptime(file[4:-4], '%Y%m%d%H%M')
+    #print(date)
+    #print(file)
+    with open(file_path +'\\'+ file) as f:
+        for cnt, line in enumerate(f):
+            values = line.split('  ')
+            #print(date.timestamp())
+            #print(values)
+            if isinstance(values[1], float) and isinstance(values[2], float) and isinstance(values[-1], float):
+                data[line_number,:] = [values[1],values[2],values[-1],date.timestamp()]
+            elif isinstance(values[1], float) and isinstance(values[3], float) and isinstance(values[-1], float):
+                data[line_number,:] = [values[1],values[3],values[-1],date.timestamp()]
+            line_number +=1
+
+
+#%%
+print(data.shape)
