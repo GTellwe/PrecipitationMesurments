@@ -38,18 +38,18 @@ input_dim = newXData.shape[1]
 
 
 # split into training and validation set
-#cut_index_1 =160000
-
+cut_index_1 =160000
+cut_index_2 = len(newXData)
 
 print(newYData.shape)
 print(newXData.shape)
 
-#xTest = newXData[cut_index_1:,:]
-#yTest = newYData[cut_index_1:]
+xTest = newXData[cut_index_1:cut_index_2,:]
+yTest = newYData[cut_index_1:cut_index_2]
 
 
-#xTrain = newXData[:cut_index_1,:]
-#yTrain = newYData[:cut_index_1]
+xTrain = newXData[:cut_index_1,:]
+yTrain = newYData[:cut_index_1]
 #xTrain = newXData[:cut_index_1,:]
 
 #yTrain = newYData[:cut_index_1]
@@ -59,15 +59,29 @@ print(newXData.shape)
 
 input_dim = newXData.shape[1]
 
+#%%
+print(newXData.shape)
+#%%
 # split into training and validation set
+tmp_xData = np.zeros((len(newXData),6,28,28,1))
+for i in range(6):
+    tmp_xData[:,i,:,:,0] = newXData[:,:,:,i]
+
+
+xTest = tmp_xData[cut_index_1:,:]
+#yTest = newYData[cut_index_1:]
+
+
+xTrain = tmp_xData[:cut_index_1,:]
+#yTrain = newYData[:cut_index_1]
 #%%
 import extendedQRNN
 model = extendedQRNN.QRNN((28*28*2+4,),quantiles, depth = 8,width = 256, activation = 'relu', model_name ='CNN')
 
 model.fit(x_train = xTrain,
-          y_train = yTrain,
+          y_train = yTrain[:,3,3],
           x_val=xTest,
-          y_val =yTest,
+          y_val =yTest[:,3,3],
           batch_size = 256,
           maximum_epochs = 500)
 
@@ -75,7 +89,7 @@ model.fit(x_train = xTrain,
 print('sad')
 #%% save model
 
-model.save('model.h5')
+model.save('CNN_model.h5')
 
 #%% load model
 from keras.models import load_model
@@ -83,21 +97,35 @@ model = load_model('results\sqrt\model.h5')
 #%% load model
 import extendedQRNN 
 # = qrnn.QRNN()
-model = extendedQRNN.QRNN.load('results/CNN2_28_1_350k/model.h5')
-
+model = extendedQRNN.QRNN.load('model2.h5')
+#%%
+print(model.x_mean)
+#%%
+print(np.mean(xTrain, axis=0, keepdims=True))
+#%%
+y_pred = model.predict(xTest)
+crps = model.crps(y_pred, yTest[:,3,3], np.array(quantiles))
+print(crps)
+#%%
+from visulize_results import generateCRPSIntervalPlot
+generateCRPSIntervalPlot(crps,quantiles, yTest[:,3,3], y_pred, 1)
+#%%
+print(np.mean(crps))
 #%%
 from visulize_results import calculate_tot_MSE,correlation_target_prediction
-print(calculate_tot_MSE(newYData[:,1]/10,newYData[:,0]))
-print(correlation_target_prediction(newYData[:,0], newYData[:,1]/10))
+print(calculate_tot_MSE(newYData[:,1],newYData[:,0]))
+print(correlation_target_prediction(newYData[:,0], newYData[:,1]))
 #%%generate results
 from visulize_results import generate_all_results
-generate_all_results(model, newXData,newYData[:,0],newYData[:,0], quantiles)
+folder_path = 'C:\\Users\\gustav\\Documents\\Sorted\\PrecipitationMesurments\\code\\results\\timeseries2\\'
+print(yTest.shape)
+generate_all_results(model, xTest,yTest,yTrain, quantiles, False, folder_path)
 #%%
 predictions = model.predict(newXData)
 
 #%%
-mean = np.zeros((40000,1))
-for i in range(40000):
+mean = np.zeros((30000,1))
+for i in range(30000):
     
     mean[i] = model.posterior_mean(newXData[i,:])
 #%%
@@ -324,16 +352,48 @@ from data_loader import convertTimeStampToDatetime
 from data_loader import getGEOData
 from matplotlib.colors import LogNorm
 folder_path = 'E:/Precipitation_mesurments'
-xData =np.load(folder_path+'/trainingData/xDataC8C13S10000_R28_P10000GPM_res1reference.npy')
-yData = np.load(folder_path+'/trainingData/yDataC8C13S10000_R28_P10000GPM_res1reference.npy')
-times = np.load(folder_path+'/trainingData/timesC8C13S10000_R28_P10000GPM_res1reference.npy')
-distance = np.load(folder_path+'/trainingData/distanceC8C13S10000_R28_P10000GPM_res1reference.npy') 
-GPM_data = np.load(folder_path+'/trainingData/positionC8C13S10000_R28_P10000GPM_res1reference.npy') 
+xData =np.load(folder_path+'/trainingData/xDataC8C13S30000_R28_P10000GPM_res1reference.npy')
+yData = np.load(folder_path+'/trainingData/yDataC8C13S30000_R28_P10000GPM_res1reference.npy')
+times = np.load(folder_path+'/trainingData/timesC8C13S30000_R28_P10000GPM_res1reference.npy')
+distance = np.load(folder_path+'/trainingData/distanceC8C13S30000_R28_P10000GPM_res1reference.npy') 
+GPM_data = np.load(folder_path+'/trainingData/positionC8C13S30000_R28_P10000GPM_res1reference.npy') 
 
+import numpy as np
+scalexData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
+scaleyData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
+scaletimes = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
+scaledistance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
+#xData = xData[:,:,6:22,6:22]
+import extendedQRNN 
+# = qrnn.QRNN()
+model = extendedQRNN.QRNN.load('results/CNN2_28_1_350k/model.h5')
 
+# remove nan values
+scalenanValues =np.argwhere(np.isnan(scalexData)) 
+scalexData = np.delete(scalexData,np.unique(scalenanValues[:,0]),0)
+
+#min1 = scalexData[:,0,:,:].min()
+#max1 = scalexData[:,0,:,:].max()
+#min2 = scalexData[:,1,:,:].min()
+#max2 = scalexData[:,1,:,:].max()
+
+tmpXData = np.zeros((len(xData),xData.shape[2],xData.shape[3],xData.shape[1]))
+for i in range(xData.shape[1]):
+ 
+        tmpXData[:,:,:,i] = (xData[:,i,:,:]-scalexData[:,i,:,:].min())/(scalexData[:,i,:,:].max()-scalexData[:,i,:,:].min()) 
+
+predictions = model.predict(tmpXData)
+
+#%%
+import matplotlib.pyplot as plt
+plt.plot(times[:10000])
+
+#%%
 extent = [-70, -50, -10, 2]
 fig = plt.figure(figsize=(30, 30))
 axes = []
+start_index = 20000
+end_index = 30000
 # Generate an Cartopy projection
 pc = ccrs.PlateCarree()
 fig.tight_layout()
@@ -353,7 +413,7 @@ axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
 min_val = 0.1
 max_val = 100
 
-im1 = axes[-1].scatter(GPM_data[:,0], GPM_data[:,1], c = yData[:,0], s = 1, cmap='jet',
+im1 = axes[-1].scatter(GPM_data[start_index:end_index,0], GPM_data[start_index:end_index,1], c = yData[start_index:end_index,0], s = 1, cmap='jet',
                norm = LogNorm(vmin=min_val, vmax = max_val)) 
 axes[-1].set_title('DPR', fontsize = 20)
 
@@ -369,9 +429,9 @@ axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
 axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
 axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
 
-im1 = axes[-1].scatter(GPM_data[:,0], GPM_data[:,1], c = yData[:,1]/10, s = 1, cmap='jet',
+im1 = axes[-1].scatter(GPM_data[start_index:end_index,0], GPM_data[start_index:end_index,1], c = yData[start_index:end_index,1], s = 1, cmap='jet',
                norm = LogNorm(vmin=min_val, vmax = max_val)) 
-axes[-1].set_title('Hydro', fontsize = 20)
+axes[-1].set_title('HE', fontsize = 20)
 
 axes.append(fig.add_subplot(1, 3, 3, projection=pc))
 axes[-1].set_extent(extent, crs=ccrs.PlateCarree())
@@ -384,11 +444,13 @@ axes[-1].add_feature(ccrs.cartopy.feature.BORDERS, linewidth=0.5)
 axes[-1].add_feature(ccrs.cartopy.feature.OCEAN, zorder=0)
 axes[-1].add_feature(ccrs.cartopy.feature.LAND, zorder=0)
 
-inds = np.where(predictions[:,2] > min_val)[0]
+tmp_pred = predictions[start_index:end_index,2]
+tmp_gpm = GPM_data[start_index:end_index,:]
+inds = np.where(tmp_pred > min_val)[0]
 
-im1 = axes[-1].scatter(GPM_data[inds,0], GPM_data[inds,1], c = predictions[inds,2], s = 1, cmap='jet',
+im1 = axes[-1].scatter(tmp_gpm[inds,0], tmp_gpm[inds,1], c = tmp_pred[inds], s = 1, cmap='jet',
                norm = LogNorm(vmin=min_val, vmax = max_val)) 
-axes[-1].set_title('Hydro', fontsize = 20)
+axes[-1].set_title('QRNN', fontsize = 20)
 #plt.colorbar(im, ax=ax)
 
    
@@ -523,34 +585,85 @@ axes[-1].set_title('DPR', fontsize = 20)
 
 #%%
 
-from os import listdir
-from os.path import isfile, join
-from datetime import datetime
-import numpy as np
-
-file_path = 'C:\\Users\\gustav\\Documents\\Sorted\\PrecipitationMesurments\\ReferensData\\hourly_rainfall'
-
-# get all the gauge data file names
-file_names = listdir(file_path)
-line_count = 165686
-data = np.zeros((line_count,4))
-line_number = 0
-for file in file_names:
-    
-    date = datetime.strptime(file[4:-4], '%Y%m%d%H%M')
-    #print(date)
-    #print(file)
-    with open(file_path +'\\'+ file) as f:
-        for cnt, line in enumerate(f):
-            values = line.split('  ')
-            #print(date.timestamp())
-            #print(values)
-            if isinstance(values[1], float) and isinstance(values[2], float) and isinstance(values[-1], float):
-                data[line_number,:] = [values[1],values[2],values[-1],date.timestamp()]
-            elif isinstance(values[1], float) and isinstance(values[3], float) and isinstance(values[-1], float):
-                data[line_number,:] = [values[1],values[3],values[-1],date.timestamp()]
-            line_number +=1
-
 
 #%%
-print(data.shape)
+from data_loader import load_gauge_data
+hydro,gauge_data, xData, times, distance = load_gauge_data()
+#%%
+import numpy as np
+folder_path = 'E:/Precipitation_mesurments'
+xData =np.load(folder_path+'/trainingData/xDataC8C13Sreference.npy')
+times = np.load(folder_path+'/trainingData/timesC8C13Sreference.npy')
+distance = np.load(folder_path+'/trainingData/distanceC8C13Sreference.npy')
+hydro = np.load(folder_path+'/trainingData/hydropredC8C13Sreference.npy')
+gauge_data = np.load(folder_path+'/trainingData/gaugeC8C13Sreference.npy')
+
+#%%
+import matplotlib.pyplot as plt
+plt.plot(hydro)
+print(hydro)
+print(hydro.shape)
+
+#%%
+#%%
+import numpy as np
+scalexData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
+scaleyData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
+scaletimes = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
+scaledistance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
+#xData = xData[:,:,6:22,6:22]
+import extendedQRNN 
+# = qrnn.QRNN()
+model = extendedQRNN.QRNN.load('results/CNN2_28_1_350k/model.h5')
+
+# remove nan values
+scalenanValues =np.argwhere(np.isnan(scalexData)) 
+scalexData = np.delete(scalexData,np.unique(scalenanValues[:,0]),0)
+predictions = np.zeros((len(gauge_data),1))
+
+#%%
+min1 = scalexData[:,0,:,:].min()
+max1 = scalexData[:,0,:,:].max()
+min2 = scalexData[:,1,:,:].min()
+max2 = scalexData[:,1,:,:].max()
+tmp_values = np.zeros((3,1))
+for i in range(gauge_data.shape[0]):
+    #print(gauge_data.shape)
+    tmp_mean = 0
+    for j in range(3):
+        tmpXData = np.zeros((1,xData.shape[3],xData.shape[4],xData.shape[2]))
+        tmpXData[:,:,:,0] = (xData[i,j,0,:,:]-min1)/(max1-min1)
+        tmpXData[:,:,:,1] = (xData[i,j,1,:,:]-min2)/(max2-min2)
+        tmp_values[j,0] = model.posterior_mean(tmpXData)
+        #tmp_mean += model.posterior_mean(tmpXData)
+    
+    tmp_values = np.sort(tmp_values)
+    predictions[i,0] = (tmp_values[0]+2*tmp_values[1]+tmp_values[2])/4
+    #print(i)
+#%%
+print(predictions.shape)
+print(gauge_data.shape)
+print(hydro.shape)
+#%%
+from visulize_results import calculate_tot_MSE,correlation_target_prediction
+print(calculate_tot_MSE(predictions,gauge_data[:,-1]))
+print(correlation_target_prediction(gauge_data[:,-1], predictions))
+#%%
+from visulize_results import calculate_tot_MSE,correlation_target_prediction
+print(calculate_tot_MSE(hydro,gauge_data[:,-1]))
+print(correlation_target_prediction(gauge_data[:,-1], hydro))
+
+#%% scatter plot the values
+import matplotlib.pyplot as plt
+s=4
+plt.scatter(predictions, gauge_data[:,-1], s=s, color = 'black')
+plt.xlim([0,30])
+plt.ylim([0,30])
+plt.ylabel('Gauge value')
+plt.xlabel('QRNN prediction')
+plt.show()
+plt.scatter(hydro, gauge_data[:,-1],s= s, color = 'black')
+plt.xlim([0,30])
+plt.ylim([0,30])
+plt.ylabel('Gauge value')
+plt.xlabel('Hydro prediction')

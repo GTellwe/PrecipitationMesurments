@@ -468,38 +468,47 @@ class QRNN:
             activation = 'relu'
             start_kernels = 32
             drop = 0.3
-            input1 = Input( shape = (6,28,28,1))
+            input1 = Input( shape = (28,28,2))
             input2 = Input( shape = (4,) )
             #conv_model = Sequential()
             tmp_input = input1
         
-            tmp_input = Conv3D(128, kernel_size=(1,2, 2),
-                             input_shape = (6,28,28,1),
+            tmp_input = Conv2D(32, kernel_size=(3,3),
+                             input_shape = (28,28,2),
                              padding = 'same',
                              activation = activation)(tmp_input)
-            tmp_input = Conv3D(128, kernel_size=(1,2, 2),
-                             padding = 'same',
-                             activation = activation)(tmp_input)
-            
-            tmp_input = MaxPooling3D(pool_size=(1, 2, 2))(tmp_input)
-            
-            tmp_input = Conv3D(256, kernel_size=(1,2, 2),
-                             padding = 'same',
-                             activation = activation)(tmp_input)
-            tmp_input = Conv3D(256, kernel_size=(1,2, 2),
+            tmp_input = Conv2D(32, kernel_size=(3,3),
                              padding = 'same',
                              activation = activation)(tmp_input)
             
-            tmp_input = MaxPooling3D(pool_size=(1, 2, 2))(tmp_input)
+            tmp_input = MaxPooling2D(pool_size=(2, 2))(tmp_input)
             
-            tmp_input = Conv3D(400, kernel_size=(1,2, 2),
+            tmp_input = Conv2D(64, kernel_size=(3, 3),
                              padding = 'same',
                              activation = activation)(tmp_input)
-            tmp_input = Conv3D(400, kernel_size=(1,2, 2),
+            tmp_input = Conv2D(64, kernel_size=(3, 3),
                              padding = 'same',
                              activation = activation)(tmp_input)
             
-            tmp_input = MaxPooling3D(pool_size=(1, 2, 2))(tmp_input)
+            tmp_input = MaxPooling2D(pool_size=(2,2))(tmp_input)
+            
+            tmp_input = Conv2D(128, kernel_size=(3,3),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            tmp_input = Conv2D(128, kernel_size=(3, 3),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            
+            tmp_input = MaxPooling2D(pool_size=(2, 2))(tmp_input)
+            
+            tmp_input = Conv2D(256, kernel_size=(3,3),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            tmp_input = Conv2D(256, kernel_size=(3, 3),
+                             padding = 'same',
+                             activation = activation)(tmp_input)
+            
+            tmp_input = MaxPooling2D(pool_size=(2, 2))(tmp_input)
             
             flat = Flatten()(tmp_input)
             
@@ -761,7 +770,7 @@ class QRNN:
         self.custom_objects = {loss.__name__: loss}
         for model in self.models:
             optimizer = SGD(lr=ilr)
-            optimizer = Adagrad()
+            #optimizer = Adagrad()
             #optimizer = Adam()
             #optimizer = RMSprop(learning_rate=0.001)
             
