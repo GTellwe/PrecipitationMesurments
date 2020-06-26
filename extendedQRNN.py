@@ -445,10 +445,12 @@ class QRNN:
                              is "relu", for rectified linear unit. See 
                              `this <https://keras.io/activations>`_ link for
                              available functions.
+            model_name: This is a sting that determines what type of newtork will be used
             **kwargs: Additional keyword arguments are passed to the constructor
                       call `keras.layers.Dense` of the hidden layers, which can
                       for example be used to add regularization. For more info consult
                       `Keras documentation. <https://keras.io/layers/core/#dense>`_
+            
         """
         self.input_dim = input_dim
         self.quantiles = np.array(quantiles)
@@ -473,33 +475,24 @@ class QRNN:
             #conv_model = Sequential()
             tmp_input = input1
         
-            tmp_input = Conv2D(32, kernel_size=(3,3),
+            tmp_input = Conv2D(64, kernel_size=(3,3),
                              input_shape = (28,28,2),
                              padding = 'same',
                              activation = activation)(tmp_input)
-            tmp_input = Conv2D(32, kernel_size=(3,3),
+            tmp_input = Conv2D(64, kernel_size=(3,3),
                              padding = 'same',
                              activation = activation)(tmp_input)
             
             tmp_input = MaxPooling2D(pool_size=(2, 2))(tmp_input)
             
-            tmp_input = Conv2D(64, kernel_size=(3, 3),
-                             padding = 'same',
-                             activation = activation)(tmp_input)
-            tmp_input = Conv2D(64, kernel_size=(3, 3),
-                             padding = 'same',
-                             activation = activation)(tmp_input)
-            
-            tmp_input = MaxPooling2D(pool_size=(2,2))(tmp_input)
-            
-            tmp_input = Conv2D(128, kernel_size=(3,3),
+            tmp_input = Conv2D(128, kernel_size=(3, 3),
                              padding = 'same',
                              activation = activation)(tmp_input)
             tmp_input = Conv2D(128, kernel_size=(3, 3),
                              padding = 'same',
                              activation = activation)(tmp_input)
             
-            tmp_input = MaxPooling2D(pool_size=(2, 2))(tmp_input)
+            tmp_input = MaxPooling2D(pool_size=(2,2))(tmp_input)
             
             tmp_input = Conv2D(256, kernel_size=(3,3),
                              padding = 'same',
@@ -510,6 +503,7 @@ class QRNN:
             
             tmp_input = MaxPooling2D(pool_size=(2, 2))(tmp_input)
             
+            
             flat = Flatten()(tmp_input)
             
             #combine = concatenate(cnn_output, input2)
@@ -519,9 +513,9 @@ class QRNN:
             #fc_model.add(Flatten())
             
             #model.add(Dropout(0.25))
-            dense = Dense(128, activation='relu')(flat)
-            dense = Dense(128, activation='relu')(dense)
-            dense = Dense(128, activation='relu')(dense)
+            dense = Dense(256, activation='relu')(flat)
+            dense = Dense(256, activation='relu')(dense)
+            dense = Dense(256, activation='relu')(dense)
             out = Dense(5)(dense)
             
             model = Model(inputs = input1, outputs = out)
@@ -982,7 +976,8 @@ class QRNN:
         qs[0, 1:-1] = quantiles
         qs[0, 0] = 0.0
         qs[0, -1] = 1.0
-
+        print(y_cdf.shape)
+        print(qs.shape)
         return np.trapz((qs - ind)**2.0, y_cdf)
 
     def evaluate_crps(self, x, y_test):

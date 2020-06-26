@@ -624,6 +624,7 @@ def getGEOData(GPM_data, channel, time_reference = 'old'):
         downloadFile(filePATH)
         #filePATH, prev_sat_h = 0, prev_sat_lon = 0, prev_sat_sweep = 0, prev_x = [], prev_y = [], prev_lons =[], prev_lats = []
         #start_time = time.time()
+        print(filePath)
         lons,lats,C,rad, x_data, y_data = extractGeoData(filePATH,sat_h,sat_lon,sat_sweep, x_data, y_data,lons,lats)
         #end_time = time.time()
         #print("time for extractng geo data %s" % (end_time-start_time))
@@ -1523,16 +1524,17 @@ def get_single_GPM_pass(DATE):
             # remove null data 
             
 
-def load_data():
+def load_data(set_nmb):
     import numpy as np
     
-    '''
-    xData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
-    yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
-    times = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
-    distance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
-    #xData = xData[:,:,6:22,6:22]
-    '''
+    if set_nmb == 1:
+        
+        xData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
+        yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
+        times = np.load('trainingData/timesC8C13S350000_R28_P200GPM_res3.npy')
+        distance = np.load('trainingData/distanceC8C13S350000_R28_P200GPM_res3.npy')  
+        #xData = xData[:,:,6:22,6:22]
+    
     '''
     xData =np.load('trainingData/xDataC8C13S350000_R28_P200GPM_res3.npy')
     yData = np.load('trainingData/yDataC8C13S350000_R28_P200GPM_res3.npy')
@@ -1546,17 +1548,20 @@ def load_data():
     times = np.load(folder_path+'/trainingData/timesC8C13S6200_R128_P1400GPM_res3timeSeries.npy')
     distance = np.load(folder_path+'/trainingData/distanceC8C13S6200_R128_P1400GPM_res3timeSeries.npy') 
     '''
-    '''
-    xData =np.load(folder_path+'/trainingData/xDataC8C13S6200_R100_P1400GPM_res3interval_3.npy')
-    yData = np.load(folder_path+'/trainingData/yDataC8C13S6200_R100_P1400GPM_res3interval_3.npy')
-    times = np.load(folder_path+'/trainingData/timesC8C13S6200_R100_P1400GPM_res3interval_3.npy')
-    distance = np.load(folder_path+'/trainingData/distanceC8C13S6200_R100_P1400GPM_res3interval_3.npy') 
-    '''
+    if set_nmb == 3:
+        
+        xData =np.load(folder_path+'/trainingData/xDataC8C13S6200_R100_P1400GPM_res3interval_3.npy')
+        yData = np.load(folder_path+'/trainingData/yDataC8C13S6200_R100_P1400GPM_res3interval_3.npy')
+        times = np.load(folder_path+'/trainingData/timesC8C13S6200_R100_P1400GPM_res3interval_3.npy')
+        distance = np.load(folder_path+'/trainingData/distanceC8C13S6200_R100_P1400GPM_res3interval_3.npy') 
+        
+    if set_nmb == 2:
     
-    xData =np.load(folder_path+'/trainingData/xDataC8C13S320000_R28_P200GPM_res3timeSeries.npy')
-    yData = np.load(folder_path+'/trainingData/yDataC8C13S320000_R28_P200GPM_res3timeSeries.npy')
-    times = np.load(folder_path+'/trainingData/timesC8C13S320000_R28_P200GPM_res3timeSeries.npy')
-    distance = np.load(folder_path+'/trainingData/distanceC8C13S320000_R28_P200GPM_res3timeSeries.npy') 
+        xData =np.load(folder_path+'/trainingData/xDataC8C13S320000_R28_P200GPM_res3timeSeries.npy')
+        yData = np.load(folder_path+'/trainingData/yDataC8C13S320000_R28_P200GPM_res3timeSeries.npy')
+        times = np.load(folder_path+'/trainingData/timesC8C13S320000_R28_P200GPM_res3timeSeries.npy')
+        distance = np.load(folder_path+'/trainingData/distanceC8C13S320000_R28_P200GPM_res3timeSeries.npy') 
+        
     
     '''
     xData =np.load('trainingData/xDataC8C13S3200_R28_P4GPM_res3.npy')
@@ -1575,7 +1580,7 @@ def load_data():
     scalexData = np.delete(scalexData,np.unique(scalenanValues[:,0]),0)
     '''
     
-    #xData = xData[:,:,8:120,8:120]
+    #xData = xData[:,:,14:114,14:114]
     nanValues =np.argwhere(np.isnan(xData)) 
     xData = np.delete(xData,np.unique(nanValues[:,0]),0)
     yData = np.delete(yData,np.unique(nanValues[:,0]),0)
@@ -1589,8 +1594,8 @@ def load_data():
     times = times[indexes,:]
     distance = distance[indexes,:]
     '''
-    print(xData.shape)
-    print(yData.shape)
+    #print(xData.shape)
+    #print(yData.shape)
     # get the mean of the yData
     #tmp_yData = np.zeros((len(yData),1))
     #for i in range(len(yData)):
@@ -1610,7 +1615,7 @@ def load_data():
     #np.mean(xTrain, axis=0, keepdims=True)
    
     
-    
+    '''
     tmpXData = np.zeros((len(xData),6,28,28,1))
     tmpXData[:,0,:,:,0] = xData[:,0,:,:]
     tmpXData[:,1,:,:,0] = xData[:,3,:,:]
@@ -1619,17 +1624,24 @@ def load_data():
     tmpXData[:,4,:,:,0] = xData[:,2,:,:]
     tmpXData[:,5,:,:,0] = xData[:,5,:,:]
     '''
-    
-    tmpXData = np.zeros((len(xData),28,28,2))
+
+    #tmpXData = np.zeros((len(xData),100,100,2))
+    #tmpXData = np.zeros((len(xData),28,28,2))
+    if set_nmb == 2:
+        tmpXData = np.zeros((1,28,28,2))
+    elif set_nmb == 1:
+        tmpXData = np.zeros((len(xData),28,28,2))
+    elif set_nmb == 3:
+        tmpXData = np.zeros((len(xData),28,28,2))
     
     for i in range(2):
-        #mean1 = np.mean(xData[:,i,:,:], axis = 0,keepdims = True)
-        #std1 = np.std(xData[:,i,:,:], axis = 0,keepdims = True)
+        #mean1 = np.mean(xData[:,i,:,:])
+        #std1 = np.std(xData[:,i,:,:])
         #xData[:,i,:,:] =  (xData[:,i,:,:]-mean1)/std1
     
         tmpXData[:,:,:,i] = (xData[:,i,:,:]-xData[:,i,:,:].min())/(xData[:,i,:,:].max()-xData[:,i,:,:].min())
     
-    '''
+    
     '''
     for i in range(6):
         #tmpXData[:,:,:,i] = (xData[:,i,:,:]-mean1)/std1
