@@ -1583,6 +1583,7 @@ def load_data(set_nmb):
 
     #tmpXData = np.zeros((len(xData),100,100,2))
     #tmpXData = np.zeros((len(xData),28,28,2))
+    
     if set_nmb == 2:
         tmpXData = np.zeros((1,28,28,2))
     elif set_nmb == 1:
