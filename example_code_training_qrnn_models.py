@@ -32,7 +32,7 @@ quantiles = [0.1, 0.3, 0.5, 0.7, 0.9]
 
 x_train, y_train, x_val, y_val, x_test, y_test = preprocess_data(xData, yData,times,distance, model_name, train_set_size, val_set_size)
 
-model = extendedQRNN.QRNN((28*28*2,),quantiles, depth = 8,width = 256, activation = 'relu', model_name = 'MLP')
+model = extendedQRNN.QRNN((28*28*2+4,),quantiles, depth = 8,width = 256, activation = 'relu', model_name = 'MLP')
 
 model.fit(x_train = x_train,
           y_train = y_train[:,3,3],
@@ -40,6 +40,9 @@ model.fit(x_train = x_train,
           y_val = y_val[:,3,3],
           batch_size = 512,
           maximum_epochs = 500)
+
+
+model.save('MLP_model.h5')
 
 '''
 Example 2:

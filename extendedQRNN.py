@@ -756,6 +756,7 @@ class QRNN:
 
         self.custom_objects = {loss.__name__: loss}
         for model in self.models:
+            
             optimizer = SGD(lr=ilr)
             #optimizer = Adagrad()
             #optimizer = Adam()
