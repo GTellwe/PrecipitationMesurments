@@ -11,6 +11,7 @@ import numpy as np
 def preprocess_data(xData,yData,times,distance, model_name, train_set_size, val_set_size):
     
     # remove nan values
+    
     nanValues =np.argwhere(np.isnan(xData)) 
     xData = np.delete(xData,np.unique(nanValues[:,0]),0)
     yData = np.delete(yData,np.unique(nanValues[:,0]),0)
@@ -50,7 +51,7 @@ def preprocess_data(xData,yData,times,distance, model_name, train_set_size, val_
         preprocessedXData = tmp
         
     x_train = preprocessedXData[:train_set_index]
-    y_train = yData[train_set_index:]
+    y_train = yData[:train_set_index]
     
     x_val = preprocessedXData[train_set_index:val_set_index]
     y_val = yData[train_set_index:val_set_index]
